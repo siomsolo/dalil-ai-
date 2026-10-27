@@ -4,8 +4,8 @@ import { createClient } from '@supabase/supabase-js';
 import { Search, Sparkles, ArrowUpLeft, ExternalLink, Menu, X, Send, ShieldCheck, CheckCircle2, LogOut, LayoutGrid, BadgeCheck } from 'lucide-react';
 import './style.css';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://ssnjoflgkkimrcapeglg.supabase.co';
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_mq0IavMqSE_2xctRz9CD-A_rH4X6PMb';
 const db = supabaseUrl && supabaseKey && !supabaseUrl.includes('YOUR_PROJECT') ? createClient(supabaseUrl, supabaseKey) : null;
 const CATEGORIES = ['كتابة ومحتوى','تصميم وصور','فيديو وصوت','برمجة وأتمتة','تسويق','إنتاجية','تعليم','أعمال وتجارة'];
 const packages = [
