@@ -14,3 +14,7 @@
 .admin-third{font-size:15px;color:var(--navy2);margin:18px 0 8px;font-weight:800}
 
 .admin-tool-manage{align-items:center;gap:12px;flex-wrap:wrap}.admin-tool-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}.btn-mini{padding:7px 10px;font-size:11px;min-height:32px}.admin-tool-actions a{display:inline-flex;align-items:center;gap:5px}@media(max-width:600px){.admin-tool-actions{width:100%;justify-content:flex-start}.admin-tool-manage>span{width:100%}}
+
+
+/* Device image upload field */
+.field-help{display:block;margin-top:6px;color:var(--muted);font-size:10px;font-weight:500;line-height:1.8}.form-card input[type="file"]{padding:9px;background:#fbfcff;border-style:dashed;cursor:pointer}.form-card input[type="file"]::file-selector-button{border:1px solid var(--line);border-radius:7px;background:#fff;padding:7px 10px;margin-left:10px;color:var(--navy);font:inherit;font-size:11px;font-weight:700;cursor:pointer}
