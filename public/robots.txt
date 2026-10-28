@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://dalil-ai-f03.pages.dev/sitemap.xml
