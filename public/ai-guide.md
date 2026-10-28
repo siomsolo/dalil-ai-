@@ -4,6 +4,7 @@
 
 ## الموقع
 - الصفحة الرئيسية: https://dalil-ai-f03.pages.dev/
+- قائمة الأدوات المنشورة: https://dalil-ai-f03.pages.dev/all-tools.html
 - تعريف المنصة: https://dalil-ai-f03.pages.dev/notebooklm.html
 - إضافة أداة: https://dalil-ai-f03.pages.dev/?intent=submit
 
