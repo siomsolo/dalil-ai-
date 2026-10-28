@@ -4,12 +4,36 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f7f8fc" />
-    <meta name="description" content="المحامي الصغير: مساعد معلومات قانونية مغربية يشرح لك المسائل العامة المرتبطة بمدونة الأسرة بلغة واضحة، مع روابط للمصادر الرسمية." />
+    <meta name="description" content="المحامي الصغير: مساعد معلومات قانونية مغربية يشرح المسائل العامة المرتبطة بمدونة الأسرة بلغة واضحة، مع روابط للمصادر الرسمية." />
     <meta name="robots" content="index, follow" />
     <title>المحامي الصغير | مساعد المعلومات القانونية المغربية</title>
+    <style>
+      html,body{margin:0;min-height:100%;font-family:Tahoma,Arial,sans-serif;background:#f7f8fc;color:#17243a}
+      #startup-fallback{max-width:720px;margin:8vh auto;padding:24px;box-sizing:border-box}
+      .fallback-card{background:#fff;border:1px solid #e1e8f0;border-radius:20px;padding:28px;box-shadow:0 14px 40px #2038540c}
+      .fallback-mark{display:inline-grid;place-items:center;width:44px;height:44px;border-radius:14px;background:#244e70;color:#fff;font-size:23px}
+      #startup-fallback h1{font-size:26px;margin:16px 0 8px}
+      #startup-fallback p{line-height:1.9;color:#627087}
+      #startup-fallback .small{font-size:13px;color:#7a8798}
+      #startup-fallback a{color:#245f83}
+      #startup-fallback button{border:0;border-radius:10px;background:#244e70;color:white;padding:11px 16px;font:inherit;cursor:pointer}
+      @media(max-width:600px){#startup-fallback{margin:3vh auto;padding:14px}.fallback-card{padding:21px}#startup-fallback h1{font-size:23px}}
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main id="startup-fallback">
+        <section class="fallback-card">
+          <span class="fallback-mark" aria-hidden="true">⚖</span>
+          <h1>المحامي الصغير</h1>
+          <p>مساعد معلومات قانونية مغربية مبسّطة.</p>
+          <p>يتم تحميل الواجهة الآن. إذا بقيت هذه الرسالة ظاهرة، فهذا يعني أن ملفات الواجهة لم تبدأ العمل كما ينبغي، لكن الصفحة نفسها متاحة.</p>
+          <p class="small">جرّب تحديث الصفحة. إذا استمرت المشكلة، أرسل لنا هذه النتيجة بدل ظهور صفحة بيضاء.</p>
+          <button type="button" onclick="location.reload()">إعادة تحميل الصفحة</button>
+          <p class="small">للمراجعة القانونية: <a href="https://adala.justice.gov.ma/resources/22" target="_blank" rel="noreferrer">بوابة عدالة الرسمية</a>.</p>
+        </section>
+      </main>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
