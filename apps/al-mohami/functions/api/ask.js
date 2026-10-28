@@ -88,6 +88,19 @@ export async function onRequestPost({ request, env }) {
       upstream = await callGemini(fallbackPayload);
       data = await upstream.json().catch(() => ({}));
     }
+
+    // If the configured model still has no available quota, try Google's lower-cost Flash-Lite model once.
+    // This cannot bypass project-wide/API-key quota exhaustion, but can help when limits differ by model.
+    if (upstream.status === 429 || upstream.status === 404) {
+      const fallbackModel = "gemini-3.5-flash-lite";
+      if (requestPayload.model !== fallbackModel) {
+        console.warn("Configured Gemini model unavailable or rate-limited; trying Flash-Lite fallback.");
+        const fallbackPayload = { ...requestPayload, model: fallbackModel };
+        delete fallbackPayload.tools;
+        upstream = await callGemini(fallbackPayload);
+        data = await upstream.json().catch(() => ({}));
+      }
+    }
   } catch (error) {
     console.error("Gemini connection failure:", error?.name || "network_error");
     return json({ error: "تعذّر الاتصال بخدمة الإجابة. حاول مرة أخرى لاحقًا." }, 502);
