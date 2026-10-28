@@ -8,6 +8,13 @@ const xmlEscape = (value = "") => String(value).replace(/[&<>"']/g, (char) => ({
 
 export async function onRequest({ env }) {
   const origin = "https://dalil-ai-f03.pages.dev";
+  const staticPages = [
+    { path: "/", changefreq: "daily", priority: "1.0" },
+    { path: "/all-tools.html", changefreq: "daily", priority: "0.9" }
+  ];
+
+  // Keep the sitemap usable even if Supabase is temporarily unavailable.
+  // Published tool pages are added whenever the database query succeeds.
   const projectUrl = env.SUPABASE_URL || "https://ssnjoflgkkimrcapeglg.supabase.co";
   const publicKey = env.SUPABASE_ANON_KEY || "sb_publishable_mq0IavMqSE_2xctRz9CD-A_rH4X6PMb";
   const query = new URLSearchParams({
@@ -17,7 +24,7 @@ export async function onRequest({ env }) {
     limit: "5000"
   });
 
-  let tools;
+  let tools = [];
   try {
     const response = await fetch(projectUrl.replace(/\/$/, "") + "/rest/v1/tools?" + query.toString(), {
       headers: {
@@ -26,25 +33,13 @@ export async function onRequest({ env }) {
         Accept: "application/json"
       }
     });
-    if (!response.ok) {
-      return new Response("Unable to generate sitemap", {
-        status: 503,
-        headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }
-      });
+    if (response.ok) {
+      const rows = await response.json();
+      tools = Array.isArray(rows) ? rows : [];
     }
-    const rows = await response.json();
-    tools = Array.isArray(rows) ? rows : [];
   } catch {
-    return new Response("Unable to generate sitemap", {
-      status: 503,
-      headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" }
-    });
+    // Fall back to the known static pages below.
   }
-
-  const staticPages = [
-    { path: "/", changefreq: "daily", priority: "1.0" },
-    { path: "/all-tools.html", changefreq: "daily", priority: "0.9" },
-  ];
 
   const toolPages = tools
     .filter((tool) => typeof tool.slug === "string" && tool.slug.trim().length > 0)
