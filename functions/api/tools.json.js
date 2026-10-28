@@ -9,7 +9,7 @@ export async function onRequest({ env }) {
   });
 
   try {
-    const response = await fetch(projectUrl.replace(/\\/$/, "") + "/rest/v1/tools?" + query.toString(), {
+    const response = await fetch(projectUrl.replace(/\/$/, "") + "/rest/v1/tools?" + query.toString(), {
       headers: {
         apikey: publicKey,
         Authorization: "Bearer " + publicKey,
