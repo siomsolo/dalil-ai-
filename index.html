@@ -65,40 +65,23 @@
   </script>
 </head>
 <body>
+  <style>
+    .initial-loading{box-sizing:border-box;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:#0b1730;color:#f8fafc;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;text-align:center}
+    .initial-loading-inner{max-width:680px}
+    .initial-loading-brand{font-size:14px;color:#93c5fd;margin-bottom:16px}
+    .initial-loading h1{font-size:clamp(28px,5vw,46px);line-height:1.45;margin:0 0 12px}
+    .initial-loading p{color:#cbd5e1;line-height:1.9;margin:0}
+    .initial-loading .loading-note{margin-top:24px;font-size:14px;color:#93c5fd}
+    @media(prefers-reduced-motion:no-preference){.initial-loading .loading-dot{display:inline-block;animation:pulse 1s ease-in-out infinite alternate}@keyframes pulse{from{opacity:.35}to{opacity:1}}}
+  </style>
   <div id="root">
-    <main>
-      <header>
-        <p>دليل مجاني للأدوات الرقمية</p>
-        <h1>اكتشف أدوات الذكاء الاصطناعي التي تنجز عملك بذكاء</h1>
-        <p>دليل عربي يساعدك على اكتشاف أدوات الذكاء الاصطناعي والمنتجات الرقمية في مكان واحد. ابحث عن أدوات الكتابة وصناعة المحتوى والتصميم والصور والفيديو والصوت والبرمجة والأتمتة والتسويق والإنتاجية والتعليم والأعمال، ثم انتقل إلى موقع الأداة لمعرفة تفاصيلها.</p>
-      </header>
-      <section>
-        <h2>ابحث عن أدوات الذكاء الاصطناعي حسب الاستخدام</h2>
-        <p>بدلاً من البحث العشوائي في مواقع كثيرة، تصفح الدليل للوصول إلى أدوات رقمية يمكن أن تساعدك على إنجاز المهام وحل مشكلات عملية. تختلف الأدوات في الميزات والتسعير؛ راجع الموقع الرسمي لكل أداة قبل استخدامها.</p>
-      </section>
-      <section>
-        <h2>أضف أداة الذكاء الاصطناعي الخاصة بك مجاناً</h2>
-        <p>هل أنشأت أداة ذكاء اصطناعي؟ أرسل اسمها ووصفها ورابط موقعها لإضافتها إلى الدليل مجاناً. تتم مراجعة الطلبات قبل النشر، وتساعد الإضافة على تعريف مستخدمين جدد بأداتك وزيادة فرص اكتشافها من الجمهور المهتم.</p>
-        <p><a href="/?intent=submit">أضف أداتك مجاناً</a></p>
-      </section>
-      <section>
-        <h2>ما المجالات التي يغطيها الدليل؟</h2>
-        <p>يشمل الدليل أدوات الكتابة وصناعة المحتوى، والتصميم والصور، والفيديو والصوت، والبرمجة والأتمتة، والتسويق، والإنتاجية، والتعليم، والأعمال والتجارة. تتغير قائمة الأدوات مع مراجعة الإضافات الجديدة.</p>
-      </section>
-      <section>
-        <h2>أسئلة شائعة عن دليل أدوات الذكاء الاصطناعي</h2>
-        <h3>هل استخدام الدليل مجاني؟</h3>
-        <p>تصفح الدليل واكتشاف الأدوات مجانيان. وقد تختلف أسعار الأدوات نفسها بحسب خدمات كل مزود.</p>
-        <h3>كيف أضيف أداة الذكاء الاصطناعي الخاصة بي؟</h3>
-        <p>انتقل إلى صفحة إضافة أداة، وسجّل الدخول، ثم أرسل اسم الأداة ووصفها وتصنيفها ورابط موقعها الرسمي. تتم مراجعة الطلب قبل النشر.</p>
-        <h3>هل تُنشر كل الأدوات المرسلة؟</h3>
-        <p>تُراجع الطلبات أولاً، ولا يعني إرسال الأداة ضمان قبولها أو نشرها.</p>
-        <h3>كيف أختار الأداة المناسبة؟</h3>
-        <p>ابدأ بتحديد المهمة التي تريد إنجازها، ثم راجع وصف الأداة وموقعها الرسمي وميزاتها وأسعارها وشروط الخصوصية قبل استخدامها.</p>
-        <h3>هل يضمن إدراج الأداة زيارات أو ترتيباً في Google؟</h3>
-        <p>يتيح الدليل فرصة إضافية للاكتشاف، لكنه لا يضمن عدد الزيارات أو ترتيب نتائج البحث.</p>
-      </section>
-      <p><a href="/all-tools.html">تصفح جميع الأدوات المنشورة</a> · <a href="/notebooklm.html">اقرأ تعريفاً عن فكرة الدليل وفوائده</a> · <a href="/ai-guide.md">اقرأ وصف الموقع بتنسيق Markdown</a></p>
+    <main class="initial-loading" role="status" aria-live="polite">
+      <div class="initial-loading-inner">
+        <div class="initial-loading-brand">دليل مجاني للأدوات الرقمية</div>
+        <h1>دليل أدوات الذكاء الاصطناعي</h1>
+        <p>اكتشف أدوات الكتابة والتصميم والفيديو والبرمجة والتسويق في مكان واحد.</p>
+        <p class="loading-note">جارٍ تحميل الأدوات <span class="loading-dot">…</span></p>
+      </div>
     </main>
   </div>
   <noscript><p>يتطلب تصفح قائمة الأدوات تفعيل JavaScript. يمكنك قراءة <a href="/notebooklm.html">تعريف المنصة</a> أو العودة إلى الصفحة الرئيسية.</p></noscript>
