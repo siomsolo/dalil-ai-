@@ -44,8 +44,6 @@ export async function onRequest({ env }) {
   const staticPages = [
     { path: "/", changefreq: "daily", priority: "1.0" },
     { path: "/all-tools.html", changefreq: "daily", priority: "0.9" },
-    { path: "/notebooklm.html", changefreq: "monthly", priority: "0.6" },
-    { path: "/ai-guide.md", changefreq: "monthly", priority: "0.6" }
   ];
 
   const toolPages = tools
