@@ -41,7 +41,7 @@ export async function onRequest({ env }) {
     });
   }
 
-  const staticPaths = ["/", "/notebooklm.html", "/ai-guide.md"];
+  const staticPaths = ["/", "/all-tools.html", "/notebooklm.html", "/ai-guide.md"];
   const toolPaths = tools
     .filter((tool) => typeof tool.slug === "string" && tool.slug.length > 0)
     .map((tool) => "/tools/" + encodeURIComponent(tool.slug));

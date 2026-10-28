@@ -97,7 +97,7 @@ export async function onRequest({ request, params, env }) {
 <div class="title-row">${logo}<div><span class="eyebrow">${escapeHtml(tool.category || "أداة ذكاء اصطناعي")}</span><h1>${escapeHtml(tool.name)}</h1><p>${escapeHtml(description)}</p></div></div>
 <div class="facts"><div><small>التصنيف</small><strong>${escapeHtml(tool.category || "غير محدد")}</strong></div><div><small>التسعير</small><strong>${escapeHtml(tool.pricing || "راجع الموقع الرسمي")}</strong></div>${tool.creator_name ? '<div><small>المطور أو الشركة</small><strong>' + escapeHtml(tool.creator_name) + '</strong></div>' : ""}</div>
 </article>
-<section class="panel"><h2>عن ${escapeHtml(tool.name)}</h2><p>${escapeHtml(tool.description || tool.short_description || "لم يضف وصف تفصيلي لهذه الأداة بعد.")}</p><div class="actions"><a class="btn primary" href="${escapeHtml(tool.website_url)}" target="_blank" rel="noopener noreferrer">زيارة الموقع الرسمي</a><a class="btn secondary" href="/">العودة إلى الدليل</a></div></section>
+<section class="panel"><h2>عن ${escapeHtml(tool.name)}</h2><p>${escapeHtml(tool.description || tool.short_description || "لم يضف وصف تفصيلي لهذه الأداة بعد.")}</p><div class="actions"><a class="btn primary" href="${escapeHtml(tool.website_url)}" target="_blank" rel="noopener noreferrer">زيارة الموقع الرسمي</a><a class="btn secondary" href="/all-tools.html">تصفح جميع الأدوات</a><a class="btn secondary" href="/">العودة إلى الدليل</a></div></section>
 </main>
 <footer class="footer">دليل أدوات الذكاء الاصطناعي — دليل لاكتشاف الأدوات الرقمية.</footer>
 </div>
