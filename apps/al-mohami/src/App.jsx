@@ -105,12 +105,14 @@ export default function App() {
 
       <main className="main-layout">
         <section className="intro-panel">
-          <div className="eyebrow"><ShieldCheck size={15} /> معرفة قانونية أوضح</div>
-          <h1>عندك سؤال قانوني؟<br /><span>ابدأ من هنا.</span></h1>
-          <p className="intro-copy">اسأل عن المسائل العامة في مدونة الأسرة المغربية، مثل النفقة والحضانة والطلاق والزيارة. سنساعدك على فهم الموضوع والخطوات التي يمكنك التحقق منها.</p>
-          <div className="trust-points">
-            <div><span className="point-icon"><BookOpen size={17} /></span><span><b>مصادر رسمية</b><small>روابط للرجوع إلى بوابة وزارة العدل</small></span></div>
-            <div><span className="point-icon"><MessageCircle size={17} /></span><span><b>شرح بلغة واضحة</b><small>إجابات مبسطة دون مصطلحات معقدة قدر الإمكان</small></span></div>
+          <div className="eyebrow"><ShieldCheck size={18} /> معلومات قانونية للأسرة المغربية</div>
+          <h1>محامي الأسرة المغربية</h1>
+          <p className="intro-copy">مساعد معلوماتي متخصص في مدونة الأسرة المغربية، يساعدك على فهم المسائل العامة المتعلقة بالزواج والطلاق والنفقة والحضانة وحق الزيارة.</p>
+          <div className="how-it-works">
+            <h2>كيف يعمل الموقع؟</h2>
+            <p><strong>١.</strong> اكتب سؤالك بلغة بسيطة في مربع المحادثة.</p>
+            <p><strong>٢.</strong> يقدّم لك المساعد شرحًا عامًا يساعدك على فهم الموضوع والخطوات التي يمكنك التحقق منها.</p>
+            <p><strong>٣.</strong> راجع روابط المصادر الرسمية أسفل الصفحة للتحقق من النصوص والإجراءات، ولا تعتمد على الإجابة وحدها في اتخاذ قرار قانوني.</p>
           </div>
         </section>
 
