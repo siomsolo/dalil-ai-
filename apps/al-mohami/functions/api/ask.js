@@ -106,6 +106,46 @@ export async function onRequestPost({ request, env }) {
     return json({ error: "تعذّر الاتصال بخدمة الإجابة. حاول مرة أخرى لاحقًا." }, 502);
   }
 
+  // If Interactions API fails for a non-quota reason, try the widely supported generateContent REST endpoint.
+  // This is a compatibility fallback, not a quota bypass.
+  if (!upstream.ok && upstream.status !== 401 && upstream.status !== 403 && upstream.status !== 429) {
+    const fallbackModel = "gemini-2.5-flash";
+    try {
+      const generateUrl = `https://generativelanguage.googleapis.com/v1beta/models/${fallbackModel}:generateContent`;
+      const generateResponse = await fetch(generateUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": env.GEMINI_API_KEY
+        },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+          contents: [{ role: "user", parts: [{ text: transcript.join("\\n\\n") }] }],
+          tools: [{ google_search: {} }],
+          generationConfig: { maxOutputTokens: 1200, temperature: 0.2 }
+        })
+      });
+      const generateData = await generateResponse.json().catch(() => ({}));
+      if (generateResponse.ok) {
+        const generatedText = (generateData?.candidates?.[0]?.content?.parts || [])
+          .filter(part => typeof part.text === "string")
+          .map(part => part.text)
+          .join("\\n")
+          .trim();
+        if (generatedText) return json({ answer: generatedText });
+      }
+      console.error("Gemini generateContent fallback error:", JSON.stringify({
+        http_status: generateResponse.status,
+        provider_status: generateData?.error?.status || null,
+        provider_message: typeof generateData?.error?.message === "string" ? generateData.error.message.slice(0, 500) : null
+      }));
+      upstream = generateResponse;
+      data = generateData;
+    } catch (error) {
+      console.error("Gemini generateContent fallback connection failure:", error?.name || "network_error");
+    }
+  }
+
   if (!upstream.ok) {
     console.error("Gemini API error:", JSON.stringify({
       http_status: upstream.status,
@@ -121,7 +161,7 @@ export async function onRequestPost({ request, env }) {
     if (upstream.status === 404) {
       return json({ error: "لم يتم العثور على نموذج Gemini المحدد. تحقّق من اسم النموذج في إعدادات الخدمة." }, 502);
     }
-    return json({ error: "تعذّر إنشاء الإجابة الآن. سجّل الخادم تفاصيل الخطأ للمراجعة." }, 502);
+    return json({ error: "تعذّر إنشاء الإجابة الآن. رمز الخطأ: " + upstream.status + ". راجع مفتاح Gemini وإعدادات النموذج." }, 502);
   }
 
   // The Interactions API returns generated text in steps[].content[].
