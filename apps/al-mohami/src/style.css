@@ -91,3 +91,55 @@ h1 span{color:#327a8a}
 .footer{border-top:1px solid #d8dee6;min-height:58px;display:flex;justify-content:space-between;align-items:center;gap:12px;color:#374151;font-size:10px}
 @media(max-width:900px){.main-layout{grid-template-columns:1fr;gap:27px;padding-top:29px}.intro-panel{padding-top:0}.intro-copy{max-width:650px}h1{font-size:37px}.trust-points{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.notice-card{max-width:none}.chat-panel{min-height:580px}.chat-content{max-height:520px}}
 @media(max-width:560px){.app-shell{padding:0 15px}.topbar{height:72px}.brand-mark{width:40px;height:40px;border-radius:13px}.brand strong{font-size:14px}.brand small{font-size:9px}.free-pill{font-size:10px;padding:6px 9px}.main-layout{padding:24px 0 30px;gap:22px}h1{font-size:32px;margin-top:16px}.intro-copy{font-size:13px}.trust-points{grid-template-columns:1fr;gap:12px;margin:21px 0}.notice-card{padding:12px}.chat-panel{border-radius:17px;min-height:590px}.chat-header{height:70px;padding:0 13px}.chat-title strong{font-size:12px}.chat-title small{font-size:9px}.chat-icon{width:34px;height:34px}.reset-button span{display:none}.chat-content{padding:18px 12px;min-height:370px}.welcome-state h2{font-size:17px}.welcome-state>p{font-size:11px}.suggestion{font-size:11px;padding:11px}.composer{margin:0 9px 10px;padding:9px}.composer-bottom{align-items:flex-end}.privacy-note{max-width:150px;line-height:1.6;font-size:9px}.send-button{padding:10px;font-size:10px}.send-button span{white-space:nowrap}.source-grid{grid-template-columns:1fr}.sources-heading{align-items:start;flex-direction:column;gap:8px}.sources-heading h2{font-size:18px}.footer{align-items:flex-start;justify-content:center;flex-direction:column;padding:13px 0;gap:4px}.message-bubble{font-size:12px}}
+
+/* تحسين وضوح الصفحة وتوسيط العنوان */
+.main-layout{display:flex;flex-direction:column;gap:28px;align-items:stretch;padding-top:34px}
+.intro-panel{padding:12px 0 0;text-align:center;max-width:920px;width:100%;margin:0 auto}
+.intro-panel .eyebrow{font-size:16px;padding:9px 15px}
+.intro-panel h1{font-size:clamp(38px,5vw,58px);line-height:1.35;letter-spacing:0;text-align:center;margin:18px auto;color:#172c49}
+.intro-panel .intro-copy{font-size:21px;line-height:1.95;max-width:900px;margin:0 auto;color:#17212f}
+.how-it-works{margin:25px auto 0;max-width:900px;text-align:right;background:#fff;border:1px solid #dbe3eb;border-radius:18px;padding:22px 26px}
+.how-it-works h2{font-size:27px;text-align:center;margin:0 0 14px;color:#172c49}
+.how-it-works p{font-size:19px;line-height:2;margin:9px 0;color:#17212f}
+.how-it-works strong{color:#236d7e}
+.trust-points{display:none}
+.chat-panel{width:100%;min-height:650px}
+.chat-title strong{font-size:18px}
+.chat-title small{font-size:14px}
+.welcome-state h2{font-size:25px}
+.welcome-state>p{font-size:17px;line-height:2}
+.suggestion{font-size:17px;padding:15px}
+.message-bubble{font-size:17px;line-height:2}
+.composer textarea{font-size:18px;min-height:75px}
+.privacy-note{font-size:13px}
+.send-button{font-size:15px;padding:12px 16px}
+.chat-footnote{font-size:13px}
+.notice-card p{font-size:16px;line-height:2}
+.notice-card strong{font-size:18px}
+.sources-heading h2{font-size:27px}
+.sources-heading>p{font-size:15px}
+.source-copy strong{font-size:16px}
+.source-copy small{font-size:14px}
+.footer{font-size:13px}
+@media(max-width:560px){
+ .main-layout{padding-top:22px;gap:20px}
+ .intro-panel h1{font-size:36px;line-height:1.4;margin:16px auto}
+ .intro-panel .intro-copy{font-size:18px;line-height:1.9}
+ .intro-panel .eyebrow{font-size:14px}
+ .how-it-works{padding:17px 15px;margin-top:20px}
+ .how-it-works h2{font-size:23px}
+ .how-it-works p{font-size:17px;line-height:1.9}
+ .chat-title strong{font-size:15px}
+ .chat-title small{font-size:12px}
+ .welcome-state h2{font-size:22px}
+ .welcome-state>p{font-size:15px}
+ .suggestion{font-size:15px;padding:13px}
+ .message-bubble{font-size:16px}
+ .composer textarea{font-size:17px}
+ .privacy-note{font-size:11px}
+ .send-button{font-size:13px}
+ .notice-card p{font-size:14px}
+ .sources-heading h2{font-size:23px}
+ .source-copy strong{font-size:15px}
+ .source-copy small{font-size:13px}
+}
