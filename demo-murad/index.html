@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101329">
+  <title>مراد الحزاق تجمع فيه الكاز</title>
+  <style>
+    :root { color-scheme: dark; --ink:#f8fafc; --muted:#c5c9dd; --gold:#ffd166; --pink:#ff5c8a; --blue:#67e8f9; }
+    * { box-sizing: border-box; }
+    html, body { margin:0; min-height:100%; }
+    body {
+      min-height:100vh; display:grid; place-items:center; overflow:hidden;
+      font-family: Tahoma, Arial, sans-serif; color:var(--ink);
+      background:
+        radial-gradient(ellipse at 18% 20%, rgba(255,92,138,.28), transparent 35%),
+        radial-gradient(ellipse at 82% 78%, rgba(103,232,249,.22), transparent 38%),
+        linear-gradient(135deg,#101329 0%,#211744 50%,#102c42 100%);
+    }
+    body::before {
+      content:""; position:fixed; inset:0; pointer-events:none; opacity:.22;
+      background-image: radial-gradient(rgba(255,255,255,.65) .8px, transparent .8px);
+      background-size:25px 25px;
+      mask-image:linear-gradient(to bottom,black,transparent 90%);
+    }
+    .card {
+      width:min(92vw, 980px); padding:clamp(28px,7vw,82px) clamp(22px,5vw,64px);
+      position:relative; text-align:center; border-radius:32px;
+      background:rgba(255,255,255,.075); border:1px solid rgba(255,255,255,.2);
+      box-shadow:0 30px 100px rgba(0,0,0,.35); backdrop-filter:blur(12px);
+    }
+    .spark { width:76px; height:5px; margin:0 auto 28px; border-radius:9px; background:linear-gradient(90deg,var(--pink),var(--gold),var(--blue)); }
+    h1 {
+      margin:0; font-size:clamp(2.2rem,7vw,5.7rem); line-height:1.45;
+      font-weight:900; letter-spacing:-.045em; text-wrap:balance;
+      background:linear-gradient(100deg,#fff 10%,var(--gold) 55%,#ff9fc0 90%);
+      -webkit-background-clip:text; background-clip:text; color:transparent;
+      text-shadow:0 10px 45px rgba(255,209,102,.08);
+    }
+    .dot { width:10px; height:10px; margin:32px auto 0; border-radius:50%; background:var(--blue); box-shadow:0 0 25px var(--blue); }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="spark" aria-hidden="true"></div>
+    <h1>مراد الحزاق تجمع فيه الكاز</h1>
+    <div class="dot" aria-hidden="true"></div>
+  </main>
+</body>
+</html>
