@@ -96,9 +96,9 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <a className="brand" href="/" aria-label="المحامي الصغير - الصفحة الرئيسية">
+        <a className="brand" href="/" aria-label="محامي الأسرة المغربية - الصفحة الرئيسية">
           <span className="brand-mark"><Scale size={22} /></span>
-          <span><strong>المحامي الصغير</strong><small>معلومات قانونية مغربية مبسّطة</small></span>
+          <span><strong>محامي الأسرة المغربية</strong><small>معلومات قانونية مغربية مبسّطة</small></span>
         </a>
         <span className="free-pill"><span className="status-dot" /> مجاني حاليًا</span>
       </header>
@@ -112,17 +112,13 @@ export default function App() {
             <div><span className="point-icon"><BookOpen size={17} /></span><span><b>مصادر رسمية</b><small>روابط للرجوع إلى بوابة وزارة العدل</small></span></div>
             <div><span className="point-icon"><MessageCircle size={17} /></span><span><b>شرح بلغة واضحة</b><small>إجابات مبسطة دون مصطلحات معقدة قدر الإمكان</small></span></div>
           </div>
-          <div className="notice-card">
-            <Info size={18} />
-            <p><strong>تنبيه مهم</strong><br />هذه الأداة للمعلومات العامة وليست مكتب محاماة، ولا تعوّض استشارة محامٍ مؤهل. قد تخطئ الإجابات؛ تحقّق من النص القانوني الرسمي قبل اتخاذ أي قرار.</p>
-          </div>
         </section>
 
         <section className="chat-panel" aria-label="محادثة قانونية">
           <div className="chat-header">
             <div className="chat-title">
               <span className="chat-icon"><Scale size={19} /></span>
-              <span><strong>اسأل المحامي الصغير</strong><small>الموضوع الأول: مدونة الأسرة المغربية</small></span>
+              <span><strong>اسأل محامي الأسرة المغربية</strong><small>الموضوع الأول: مدونة الأسرة المغربية</small></span>
             </div>
             {messages.length > 0 && <button className="reset-button" onClick={resetChat} title="محادثة جديدة"><RotateCcw size={15} /><span>محادثة جديدة</span></button>}
           </div>
@@ -171,6 +167,13 @@ export default function App() {
         </section>
       </main>
 
+      <section className="legal-notice-section" aria-label="تنبيه قانوني">
+        <div className="notice-card">
+          <Info size={18} />
+          <p><strong>تنبيه مهم</strong><br />هذه الأداة للمعلومات العامة وليست مكتب محاماة، ولا تعوّض استشارة محامٍ مؤهل. قد تخطئ الإجابات؛ تحقّق من النص القانوني الرسمي قبل اتخاذ أي قرار.</p>
+        </div>
+      </section>
+
       <section className="sources-section">
         <div className="sources-heading"><div><span className="section-kicker">تحقّق بنفسك</span><h2>مصادر رسمية</h2></div><p>استخدم الروابط الرسمية للتحقق من النصوص القانونية والإجراءات الحالية.</p></div>
         <div className="source-grid">
@@ -185,7 +188,7 @@ export default function App() {
       </section>
 
       <footer className="footer">
-        <span>المحامي الصغير © {new Date().getFullYear()}</span>
+        <span>محامي الأسرة المغربية © {new Date().getFullYear()}</span>
         <span>أداة معلوماتية مستقلة، وليست جهة حكومية أو مكتب محاماة.</span>
       </footer>
     </div>
