@@ -94,8 +94,11 @@ export async function onRequestPost({ request, env }) {
     return json({ error: "تعذّر إنشاء الإجابة الآن. سجّل الخادم تفاصيل الخطأ للمراجعة." }, 502);
   }
 
-  const output = Array.isArray(data.output) ? data.output : [];
-  const answer = output
+  // The Interactions API returns generated text in steps[].content[].
+  const steps = Array.isArray(data.steps) ? data.steps : [];
+  const answer = steps
+    .filter(step => step && step.type === "model_output" && Array.isArray(step.content))
+    .flatMap(step => step.content)
     .filter(item => item && item.type === "text" && typeof item.text === "string")
     .map(item => item.text)
     .join("\n")
@@ -104,9 +107,9 @@ export async function onRequestPost({ request, env }) {
   if (!answer) {
     console.error("Gemini returned no text output:", JSON.stringify({
       status: data?.status || null,
-      output_types: output.map(item => item?.type).filter(Boolean)
+      step_types: steps.map(step => step?.type).filter(Boolean)
     }));
-    return json({ error: "لم تصل إجابة واضحة. أعد صياغة السؤال وحاول مجددًا." }, 502);
+    return json({ error: "لم تصل إجابة نصية من Gemini. حاول مرة أخرى، وإذا تكرر الخطأ فراجع سجلات الخادم." }, 502);
   }
   return json({ answer });
 }
