@@ -6,11 +6,14 @@ import "./style.css";
 class AppErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false };
+    this.state = { hasError: false, errorMessage: "" };
   }
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
+  static getDerivedStateFromError(error) {
+    return {
+      hasError: true,
+      errorMessage: error?.message || "سبب الخطأ غير متاح"
+    };
   }
 
   componentDidCatch(error) {
@@ -23,7 +26,8 @@ class AppErrorBoundary extends React.Component {
         <main style={{ maxWidth: 720, margin: "8vh auto", padding: 24, fontFamily: "Tahoma, Arial, sans-serif", direction: "rtl", color: "#17243a" }}>
           <section style={{ background: "#fff", border: "1px solid #e1e8f0", borderRadius: 20, padding: 28 }}>
             <h1>تعذّر عرض الواجهة</h1>
-            <p style={{ lineHeight: 1.9, color: "#627087" }}>حدث خطأ أثناء تشغيل واجهة المحامي الصغير. أعد تحميل الصفحة، وإذا تكرر الخطأ أرسل لقطة شاشة لهذه الرسالة.</p>
+            <p style={{ lineHeight: 1.9, color: "#627087" }}>تم تحميل التطبيق، لكن حدث خطأ أثناء عرض الواجهة. أظهرنا تفاصيل الخطأ لتحديد السبب وإصلاحه.</p>
+            <pre dir="ltr" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", background: "#f5f7fa", padding: 12, borderRadius: 8 }}>{this.state.errorMessage}</pre>
             <button onClick={() => location.reload()} style={{ border: 0, borderRadius: 10, background: "#244e70", color: "#fff", padding: "11px 16px", font: "inherit" }}>إعادة المحاولة</button>
           </section>
         </main>
