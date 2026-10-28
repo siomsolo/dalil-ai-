@@ -53,29 +53,46 @@ export async function onRequestPost({ request, env }) {
   transcript.push("سؤال المستخدم الحالي: " + question);
 
   const model = env.GEMINI_MODEL || "gemini-3.8-flash";
-  let upstream;
-  try {
-    upstream = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
+  const requestPayload = {
+    model,
+    input: transcript.join("\n\n"),
+    system_instruction: SYSTEM_INSTRUCTION,
+    tools: [{ type: "google_search" }],
+    store: false,
+    generation_config: { temperature: 0.2, max_output_tokens: 1200 }
+  };
+
+  async function callGemini(payload) {
+    return fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "x-goog-api-key": env.GEMINI_API_KEY
       },
-      body: JSON.stringify({
-        model,
-        input: transcript.join("\n\n"),
-        system_instruction: SYSTEM_INSTRUCTION,
-        tools: [{ type: "google_search" }],
-        store: false,
-        generation_config: { temperature: 0.2, max_output_tokens: 1200 }
-      })
+      body: JSON.stringify(payload)
     });
+  }
+
+  let upstream;
+  let data = {};
+  try {
+    upstream = await callGemini(requestPayload);
+    data = await upstream.json().catch(() => ({}));
+
+    // If Google Search grounding itself is rate-limited, retry once without the search tool.
+    // The answer must then be cautious and must not claim it verified current official law.
+    if (upstream.status === 429 && requestPayload.tools?.length) {
+      console.warn("Gemini search-grounded request was rate-limited; retrying once without Google Search.");
+      const fallbackPayload = { ...requestPayload };
+      delete fallbackPayload.tools;
+      upstream = await callGemini(fallbackPayload);
+      data = await upstream.json().catch(() => ({}));
+    }
   } catch (error) {
     console.error("Gemini connection failure:", error?.name || "network_error");
     return json({ error: "تعذّر الاتصال بخدمة الإجابة. حاول مرة أخرى لاحقًا." }, 502);
   }
 
-  const data = await upstream.json().catch(() => ({}));
   if (!upstream.ok) {
     console.error("Gemini API error:", JSON.stringify({
       http_status: upstream.status,
@@ -83,7 +100,7 @@ export async function onRequestPost({ request, env }) {
       provider_message: typeof data?.error?.message === "string" ? data.error.message.slice(0, 500) : null
     }));
     if (upstream.status === 429) {
-      return json({ error: "وصلت الخدمة إلى حد الاستخدام المؤقت. انتظر قليلًا ثم حاول مجددًا." }, 429);
+      return json({ error: "وصلت حصة Gemini إلى حدّها المؤقت. قد يكون الحد خاصًا بالنموذج أو بالمشروع؛ انتظر إعادة ضبط الحصة أو راجع حدود الاستخدام في Google AI Studio." }, 429);
     }
     if (upstream.status === 401 || upstream.status === 403) {
       return json({ error: "رفضت خدمة Gemini المفتاح أو صلاحية الوصول. تحقّق من المفتاح وصلاحيته في Google AI Studio." }, 502);
