@@ -163,7 +163,7 @@ export default function App() {
               disabled={busy}
             />
             <div className="composer-bottom">
-              <span className="privacy-note"><ShieldCheck size={14} /> لا تحفظ هذه الصفحة المحادثة بعد مغادرتها.</span>
+              <span className="privacy-note"><ShieldCheck size={14} /> يُرسل سؤالك إلى خدمة ذكاء اصطناعي للإجابة؛ لا تكتب بيانات شخصية أو حساسة.</span>
               <button className="send-button" type="submit" disabled={busy || !input.trim()}><span>إرسال السؤال</span><Send size={16} /></button>
             </div>
           </form>
