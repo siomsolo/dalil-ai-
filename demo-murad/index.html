@@ -37,7 +37,9 @@
       -webkit-background-clip:text; background-clip:text; color:transparent;
       text-shadow:0 10px 45px rgba(255,209,102,.08);
     }
-    .dot { width:10px; height:10px; margin:32px auto 0; border-radius:50%; background:var(--blue); box-shadow:0 0 25px var(--blue); }
+    .dot { width:10px; height:10px; margin:24px auto 0; border-radius:50%; background:var(--blue); box-shadow:0 0 25px var(--blue); }
+    .cartoon { display:block; width:min(100%,470px); height:auto; margin:18px auto 0; filter:drop-shadow(0 18px 22px rgba(0,0,0,.3)); }
+    @media(max-width:480px){ .card{padding:26px 16px;border-radius:24px} .cartoon{width:100%;margin-top:12px} }
   </style>
 </head>
 <body>
@@ -45,6 +47,30 @@
     <div class="spark" aria-hidden="true"></div>
     <h1>مراد الحزاق تجمع فيه الكاز</h1>
     <div class="dot" aria-hidden="true"></div>
+    <svg class="cartoon" viewBox="0 0 520 360" role="img" aria-label="رسم كاريكاتوري مضحك لشخص يطلق الريح">
+      <defs>
+        <linearGradient id="shirt" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#ff646b"/><stop offset="1" stop-color="#c91d43"/></linearGradient>
+        <linearGradient id="jeans" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#5db8ee"/><stop offset="1" stop-color="#174f8c"/></linearGradient>
+        <linearGradient id="cloud" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f4ffb1"/><stop offset="1" stop-color="#91d77e"/></linearGradient>
+      </defs>
+      <ellipse cx="250" cy="330" rx="175" ry="15" fill="#080b20" opacity=".35"/>
+      <g stroke="#172039" stroke-width="7" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M164 158 Q130 176 137 221 L179 251 L237 226 L254 177 Q223 145 164 158Z" fill="url(#shirt)"/>
+        <path d="M180 232 L244 218 L281 261 L270 312 L220 313 L211 270 L181 307 L137 299 L157 253Z" fill="url(#jeans)"/>
+        <path d="M220 312 L270 312 L276 328 L215 328Z" fill="#f7f7ff"/><path d="M137 299 L181 307 L176 326 L119 326 Q111 317 137 299Z" fill="#f7f7ff"/>
+        <path d="M143 187 Q119 210 145 233" fill="none"/><path d="M154 150 Q126 124 140 86 Q152 51 192 55 Q229 59 237 94 Q246 130 213 157Z" fill="#f7b98e"/>
+        <path d="M140 99 Q125 58 168 43 Q209 26 232 65 L219 91 L201 71 L176 85 L156 110Z" fill="#38251e"/>
+        <path d="M154 107 Q172 96 184 108" fill="none" stroke-width="9"/><ellipse cx="194" cy="109" rx="9" ry="12" fill="#fff"/>
+        <circle cx="197" cy="111" r="4" fill="#172039" stroke="none"/><path d="M169 135 Q190 154 213 129 Q197 164 169 135Z" fill="#fff"/>
+        <path d="M165 174 Q187 186 210 177" fill="none" stroke="#ffb5c8" stroke-width="5"/>
+      </g>
+      <g fill="url(#cloud)" stroke="#263b35" stroke-width="5" stroke-linejoin="round">
+        <path d="M291 201 C266 196 270 169 293 163 C287 139 315 124 334 139 C347 113 381 121 383 147 C408 139 429 162 417 183 C441 201 425 229 402 230 C395 256 365 260 350 242 C326 259 297 242 302 222 C286 220 281 211 291 201Z"/>
+        <circle cx="443" cy="131" r="17"/><circle cx="463" cy="202" r="12"/><circle cx="321" cy="113" r="10"/>
+      </g>
+      <g stroke="#a9e7a0" stroke-width="5" stroke-linecap="round" fill="none"><path d="M300 181 l20 -7 M332 211 l23 6 M370 163 l14 -8 M390 207 l13 -4"/></g>
+      <g stroke="#ffd166" stroke-width="5" stroke-linecap="round" fill="none"><path d="M279 164 l-15 -12 M286 185 l-22 0 M280 207 l-15 12"/></g>
+    </svg>
   </main>
 </body>
 </html>
