@@ -3,3 +3,6 @@ CREATE INDEX IF NOT EXISTS idx_products_status_created ON products(status,create
 CREATE INDEX IF NOT EXISTS idx_products_category ON products(category);
 CREATE INDEX IF NOT EXISTS idx_products_language ON products(language);
 CREATE INDEX IF NOT EXISTS idx_products_market ON products(market);
+CREATE TABLE IF NOT EXISTS product_events (id TEXT PRIMARY KEY, product_slug TEXT NOT NULL, event_type TEXT NOT NULL CHECK(event_type IN ('view','click')), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE INDEX IF NOT EXISTS idx_product_events_slug_type ON product_events(product_slug,event_type);
+CREATE INDEX IF NOT EXISTS idx_product_events_created ON product_events(created_at);
