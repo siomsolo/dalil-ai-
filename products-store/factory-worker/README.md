@@ -1,11 +1,20 @@
-# DigitalNest Factory Worker
+# DigitalNest Factory Scheduler Worker
 
-Scheduled worker for the factory. Apply migration `../migrations/0002_factory.sql` to the existing D1 database, set `ADMIN_PASSWORD`, then deploy with Wrangler from this directory.
+This Worker runs the DigitalNest Pages factory endpoints on a daily cron.
 
-Daily trigger: 08:00 UTC. It seeds a curated starter opportunity list, queues and processes one product job per scheduled invocation, and creates an original English PDF plus SVG cover. Auto-publication follows the factory setting.
+## Setup
+1. Merge PR #13 and wait for the Pages deployment.
+2. From this directory, apply the D1 migration:
+   npx wrangler d1 execute digital-products-store --remote --file ../migrations/0002_factory.sql
+3. Set the scheduler token to the same secret value as Pages ADMIN_PASSWORD:
+   npx wrangler secret put FACTORY_ADMIN_TOKEN
+4. Configure FACTORY_PAGES_URL=https://digital-products-store-4yt.pages.dev (the Worker defaults to this URL).
+5. Deploy with npx wrangler deploy.
 
-**Important:** Neurons accounting is a conservative estimate (700 per job), not a provider-reported usage meter. Keep factory disabled until migration, deployment, and smoke tests are complete; use a reserve and confirm account quotas.
+The cron is 08:00 UTC. Each run refreshes curated evergreen/seasonal ideas and Google Trends RSS signals where available, plans jobs under the daily AI allowance/reserve/daily cap, then processes up to 10 jobs. The factory must be enabled in /factory.html.
 
-`npx wrangler d1 execute digital-products-store --remote --file ../migrations/0002_factory.sql`
-`npx wrangler secret put ADMIN_PASSWORD`
-`npx wrangler deploy`
+## Safety
+- Start with daily cap 1; inspect the PDF, cover, product page and Cloudflare AI usage before increasing it.
+- Workers AI Free allocation is 10,000 Neurons/day. Per-product usage in the app is an estimate, not provider-reported metering.
+- Trends show search interest, not confirmed sales.
+- Payment is not included in this release.
