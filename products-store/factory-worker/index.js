@@ -3,7 +3,8 @@ export default {
     const base=env.FACTORY_PAGES_URL||"https://digital-products-store-4yt.pages.dev";
     if(!env.FACTORY_ADMIN_TOKEN)throw new Error("FACTORY_ADMIN_TOKEN secret is not configured.");
     const headers={"content-type":"application/json","x-admin-token":env.FACTORY_ADMIN_TOKEN};
-    const opportunitiesRes=await fetch(base+"/api/factory-opportunities",{method:"GET",headers});const opportunitiesText=await opportunitiesRes.text();if(!opportunitiesRes.ok)throw new Error("Opportunity ingestion failed "+opportunitiesRes.status+": "+opportunitiesText.slice(0,300));console.log("Factory opportunities",opportunitiesText.slice(0,500));\n    const planRes=await fetch(base+"/api/factory-run",{method:"POST",headers,body:"{}"});
+    const opportunitiesRes=await fetch(base+"/api/factory-opportunities",{method:"GET",headers});const opportunitiesText=await opportunitiesRes.text();if(!opportunitiesRes.ok)throw new Error("Opportunity ingestion failed "+opportunitiesRes.status+": "+opportunitiesText.slice(0,300));console.log("Factory opportunities",opportunitiesText.slice(0,500));
+    const planRes=await fetch(base+"/api/factory-run",{method:"POST",headers,body:"{}"});
     const planText=await planRes.text();if(!planRes.ok)throw new Error("Planner failed "+planRes.status+": "+planText.slice(0,300));
     const plan=JSON.parse(planText);console.log("Factory plan",plan);
     const count=Math.min(10,Number(plan.queued||0));
