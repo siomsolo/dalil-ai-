@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS factory_settings (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 INSERT OR IGNORE INTO factory_settings (id) VALUES (1);
+UPDATE factory_settings SET reserve_percent=30,daily_product_cap=1 WHERE id=1 AND reserve_percent=20 AND daily_product_cap=10;
 CREATE TABLE IF NOT EXISTS factory_opportunities (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
