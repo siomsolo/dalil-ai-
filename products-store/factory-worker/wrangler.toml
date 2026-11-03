@@ -1,5 +1,5 @@
 name = "digitalnest-factory-scheduler"
-main = "src/index.js"
+main = "index.js"
 compatibility_date = "2026-11-03"
 
 [triggers]
