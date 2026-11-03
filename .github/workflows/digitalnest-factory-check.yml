@@ -1,0 +1,33 @@
+name: DigitalNest factory syntax checks
+on:
+  pull_request:
+    paths:
+      - "products-store/functions/api/factory-*.js"
+      - "products-store/functions/media/**"
+      - "products-store/factory-worker/**"
+      - "products-store/factory.js"
+      - "products-store/factory.html"
+  push:
+    branches:
+      - digitalnest-automated-factory
+    paths:
+      - "products-store/functions/api/factory-*.js"
+      - "products-store/functions/media/**"
+      - "products-store/factory-worker/**"
+      - "products-store/factory.js"
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check factory JavaScript syntax
+        run: |
+          set -e
+          for file in products-store/functions/api/factory-*.js products-store/functions/media/*.js products-store/factory.js products-store/factory-worker/index.js; do
+            [ -f "$file" ] || continue
+            echo "Checking $file"
+            node --input-type=module --check < "$file"
+          done
