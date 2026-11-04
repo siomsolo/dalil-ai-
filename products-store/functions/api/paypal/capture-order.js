@@ -4,7 +4,10 @@ async function accessToken(env) {
   if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
     throw new Error("PayPal Sandbox credentials are not configured on this deployment.");
   }
-  const auth = btoa(env.PAYPAL_CLIENT_ID + ":" + env.PAYPAL_CLIENT_SECRET);
+  const credentials = new TextEncoder().encode(env.PAYPAL_CLIENT_ID + ":" + env.PAYPAL_CLIENT_SECRET);
+  let binaryCredentials = "";
+  for (const byte of credentials) binaryCredentials += String.fromCharCode(byte);
+  const auth = btoa(binaryCredentials);
   const response = await fetch(PAYPAL_API + "/v1/oauth2/token", {
     method: "POST",
     headers: {
