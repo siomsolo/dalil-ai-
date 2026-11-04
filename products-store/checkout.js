@@ -70,7 +70,7 @@
       const configResponse = await fetch("/api/paypal/config", { cache: "no-store" });
       const config = await readJsonResponse(configResponse, "PayPal configuration");
       if (!config.enabled || !config.clientId) {
-        say("PayPal Sandbox is not configured yet. Please check the store settings.");
+        say("PayPal is not configured yet. Please check the store settings.");
         return;
       }
 
