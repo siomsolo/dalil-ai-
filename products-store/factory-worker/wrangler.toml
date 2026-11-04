@@ -1,9 +1,9 @@
-name = "digitalnest-factory-scheduler"
+name = "digitalnest-daily-factory"
 main = "index.js"
 compatibility_date = "2026-11-03"
 
 [triggers]
-crons = ["0 8 * * *"]
+crons = ["5 0 * * *"]
 
 [[d1_databases]]
 binding = "DB"
