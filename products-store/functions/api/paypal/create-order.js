@@ -1,8 +1,8 @@
-const PAYPAL_API = "https://api-m.sandbox.paypal.com";
+const PAYPAL_API = "https://api-m.paypal.com";
 
 async function accessToken(env) {
   if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
-    throw new Error("PayPal Sandbox credentials are not configured on this deployment.");
+    throw new Error("PayPal Live credentials are not configured on this deployment.");
   }
   const credentials = new TextEncoder().encode(env.PAYPAL_CLIENT_ID + ":" + env.PAYPAL_CLIENT_SECRET);
   let binaryCredentials = "";
