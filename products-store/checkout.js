@@ -5,7 +5,42 @@
 
   const slug = container.dataset.productSlug;
   const say = (message) => {
-    if (status) status.textContent = message;
+    if (status) {
+      status.textContent = message;
+      status.style.whiteSpace = "pre-wrap";
+      status.style.overflowWrap = "anywhere";
+    }
+  };
+
+  const errorText = (error) => {
+    if (!error) return "No error details were provided by PayPal.";
+    const parts = [];
+    if (error.name) parts.push("Type: " + String(error.name));
+    if (error.code) parts.push("Code: " + String(error.code));
+    if (error.debug_id) parts.push("PayPal debug ID: " + String(error.debug_id));
+    if (error.message) parts.push("Message: " + String(error.message));
+    if (Array.isArray(error.details)) {
+      for (const detail of error.details.slice(0, 3)) {
+        if (detail && detail.description) parts.push("Detail: " + String(detail.description));
+        if (detail && detail.issue) parts.push("Issue: " + String(detail.issue));
+      }
+    }
+    return parts.length ? parts.join("\\n") : String(error);
+  };
+
+  const readJsonResponse = async (response, stage) => {
+    const raw = await response.text();
+    let data = {};
+    try {
+      data = raw ? JSON.parse(raw) : {};
+    } catch {
+      throw new Error(stage + " returned HTTP " + response.status + " but not valid JSON.");
+    }
+    if (!response.ok) {
+      const reason = data.error || data.message || data.details || response.statusText;
+      throw new Error(stage + " failed (HTTP " + response.status + "): " + String(reason || "Unknown server error"));
+    }
+    return data;
   };
 
   const loadPayPalSdk = (clientId) => new Promise((resolve, reject) => {
@@ -33,11 +68,7 @@
     try {
       say("Connecting securely to PayPal…");
       const configResponse = await fetch("/api/paypal/config", { cache: "no-store" });
-      if (!configResponse.ok) {
-        throw new Error("The store could not read its PayPal configuration.");
-      }
-
-      const config = await configResponse.json();
+      const config = await readJsonResponse(configResponse, "PayPal configuration");
       if (!config.enabled || !config.clientId) {
         say("PayPal Sandbox is not configured yet. Please check the store settings.");
         return;
@@ -61,6 +92,9 @@
           shape: "rect",
           label: "paypal"
         },
+        onClick: function () {
+          say("PayPal button clicked. Waiting for the secure PayPal window…");
+        },
         createOrder: async function () {
           say("Preparing your secure PayPal order…");
           const response = await fetch("/api/paypal/create-order", {
@@ -68,9 +102,9 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ slug })
           });
-          const data = await response.json();
-          if (!response.ok || !data.id) {
-            throw new Error(data.error || "Could not create the PayPal order.");
+          const data = await readJsonResponse(response, "Create PayPal order");
+          if (!data.id) {
+            throw new Error("Create PayPal order succeeded but the server returned no order ID.");
           }
           return data.id;
         },
@@ -81,9 +115,9 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ orderID: data.orderID })
           });
-          const result = await response.json();
-          if (!response.ok || !result.ok || !result.downloadUrl) {
-            throw new Error(result.error || "PayPal did not confirm this payment.");
+          const result = await readJsonResponse(response, "Capture PayPal payment");
+          if (!result.ok || !result.downloadUrl) {
+            throw new Error(result.error || "PayPal did not confirm this payment or no download URL was returned.");
           }
 
           say("Payment confirmed. Your download is ready.");
@@ -100,7 +134,7 @@
         },
         onError: function (error) {
           console.error("PayPal checkout error", error);
-          say("PayPal checkout could not be completed. Please try again.");
+          say("PAYPAL ERROR\\n" + errorText(error));
         }
       });
 
@@ -108,6 +142,7 @@
       say("Choose PayPal to continue with secure checkout.");
     } catch (error) {
       console.error("PayPal checkout initialization failed", error);
+      say("CHECKOUT INITIALIZATION ERROR\\n" + errorText(error));
       if (String(error.message || "").includes("download the PayPal SDK")) {
         say("PayPal could not be reached from this browser or network. Please open this page in Chrome, disable VPN or ad blocking temporarily, and reload.");
       } else {
