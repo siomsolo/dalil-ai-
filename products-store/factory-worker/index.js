@@ -29,7 +29,7 @@ export default {
         console.error("Factory attempt failed", result);
         continue;
       }
-      completed += 1;
+      completed += Number(result.processed || 1);
       console.log("Factory product completed", result);
     }
     console.log("Factory daily run finished", { completed, failures });
