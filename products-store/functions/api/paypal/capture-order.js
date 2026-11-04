@@ -48,7 +48,7 @@ export async function onRequestPost({ request, env }) {
     if (!orderId || orderId.length > 64) return Response.json({ error: "PayPal order ID is required." }, { status: 400 });
 
     const order = await env.DB.prepare(
-      "SELECT paypal_order_id,product_slug,status FROM product_orders WHERE paypal_order_id=?"
+      "SELECT paypal_order_id,product_slug,status,amount,currency FROM product_orders WHERE paypal_order_id=?"
     ).bind(orderId).first();
     if (!order) return Response.json({ error: "Order was not created by this store." }, { status: 404 });
 
@@ -64,10 +64,17 @@ export async function onRequestPost({ request, env }) {
         body: "{}"
       });
       const data = await response.json();
-      if (!response.ok || data.status !== "COMPLETED") {
-        return Response.json({ error: data.message || "PayPal has not confirmed this payment.", details: data.details || [] }, { status: 402 });
+      const unit = data.purchase_units?.[0];
+      const capture = unit?.payments?.captures?.[0];
+      const paidAmount = capture?.amount;
+      const customId = unit?.custom_id;
+      if (!response.ok || data.status !== "COMPLETED" || capture?.status !== "COMPLETED" ||
+          customId !== order.product_slug ||
+          paidAmount?.currency_code !== order.currency ||
+          paidAmount?.value !== Number(order.amount).toFixed(2)) {
+        return Response.json({ error: "PayPal payment details did not match this order. The download has not been released." }, { status: 402 });
       }
-      const captureId = data.purchase_units?.[0]?.payments?.captures?.[0]?.id || null;
+      const captureId = capture.id || null;
       await env.DB.prepare(
         "UPDATE product_orders SET status='COMPLETED',capture_id=?,paid_at=CURRENT_TIMESTAMP WHERE paypal_order_id=?"
       ).bind(captureId, orderId).run();
