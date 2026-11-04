@@ -144,7 +144,7 @@
       console.error("PayPal checkout initialization failed", error);
       say("CHECKOUT INITIALIZATION ERROR\\n" + errorText(error));
       if (String(error.message || "").includes("download the PayPal SDK")) {
-        say("PayPal could not be reached from this browser or network. Please open this page in Chrome, disable VPN or ad blocking temporarily, and reload.");
+        say("PayPal SDK load failed. Check whether this browser or network blocks www.paypal.com.\\n" + errorText(error));
       } else {
         say(error.message || "Checkout is temporarily unavailable. Please refresh the page.");
       }
