@@ -52,7 +52,7 @@ export async function onRequest(context) {
 
     const html = await response.text();
     const cards = results.map(renderProduct).join("\n");
-    const markerPattern = /<!-- PRODUCTS_SSR_START -->[\\s\\S]*?<!-- PRODUCTS_SSR_END -->/;
+    const markerPattern = /<!-- PRODUCTS_SSR_START -->[^]*?<!-- PRODUCTS_SSR_END -->/;
 
     if (!markerPattern.test(html)) return fallback;
 
