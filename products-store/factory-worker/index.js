@@ -36,6 +36,6 @@ export default {
     if (completed === 0 && failures.length) throw new Error("No products completed. " + failures.join(" | "));
   },
   async fetch() {
-    return new Response("DigitalNest scheduled factory. Runs daily at 00:05 UTC; target: 3 products.", { status: 200 });
+    return new Response("DigitalNest scheduled factory. Runs sequentially every 15 minutes; daily safety cap applies.", { status: 200 });
   }
 };
