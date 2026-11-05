@@ -36,7 +36,7 @@ async function generateDraft(env,job){
  if(!generated)throw new Error("Gemini returned an empty draft: "+JSON.stringify(payload.promptFeedback||{}));
  return parseDraft(generated);
 }
-function pdfEscape(s){return String(s||"").replace(/[^\x20-\x7E]/g," ").replace(/([\\()])/g,"\\$1")}
+function pdfEscape(s){return String(s||"").replace(/[^\x20-\xFF]/g,"?").replace(/([\\()])/g,"\\$1")}
 function makePdf(title,body){
  const W=612,H=792,L=48,R=48,WIDTH=W-L-R,BOTTOM=48;let pages=[],ops=[],y=738;
  const page=()=>{pages.push(ops.join("\n"));ops=[];y=738};
