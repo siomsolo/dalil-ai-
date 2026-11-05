@@ -1,17 +1,13 @@
 const origin = "https://digital-products-store-4yt.pages.dev";
 
-function markdownText(value) {
-  return String(value ?? "")
-    .replace(/\\r?\\n/g, " ")
-    .replace(/\\s+/g, " ")
-    .replace(/([\\\\`*_{}\\[\\]()#+.!|>])/g, "\\\\$1")
-    .trim();
+function clean(value) {
+  return String(value ?? "").replace(/\s+/g, " ").trim();
 }
 
 export async function onRequest({ env }) {
   try {
     const { results = [] } = await env.DB.prepare(
-      "SELECT slug,title,description,category,language,market,occasion,keywords,price FROM products WHERE status='published' ORDER BY created_at DESC LIMIT 50000"
+      "SELECT slug,title,description,category,language,market,price FROM products WHERE status='published' ORDER BY created_at DESC LIMIT 50000"
     ).all();
 
     const lines = [
@@ -27,12 +23,12 @@ export async function onRequest({ env }) {
 
     for (const p of results) {
       const href = origin + "/product/" + encodeURIComponent(p.slug);
-      lines.push("### " + markdownText(p.title));
-      if (p.description) lines.push(markdownText(p.description));
+      lines.push("### " + clean(p.title));
+      if (p.description) lines.push(clean(p.description));
       lines.push(
-        "- Category: " + markdownText(p.category || "Digital resource"),
-        "- Language: " + markdownText(p.language || "Not specified"),
-        "- Market: " + markdownText(p.market || "Global"),
+        "- Category: " + clean(p.category || "Digital resource"),
+        "- Language: " + clean(p.language || "Not specified"),
+        "- Market: " + clean(p.market || "Global"),
         "- Price: " + (Number.isFinite(Number(p.price)) ? "$" + Number(p.price).toFixed(2) : "See product page"),
         "- Product page: " + href,
         ""
@@ -40,9 +36,9 @@ export async function onRequest({ env }) {
     }
 
     if (!results.length) lines.push("No published products are currently listed.", "");
-
     lines.push("## Main pages", "", "- Store homepage: " + origin + "/", "- XML sitemap: " + origin + "/sitemap.xml", "");
-    return new Response(lines.join("\\n"), {
+
+    return new Response(lines.join("\n"), {
       headers: {
         "content-type": "text/markdown; charset=UTF-8",
         "cache-control": "public, max-age=300",
