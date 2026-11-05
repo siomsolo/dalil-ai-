@@ -3,6 +3,13 @@ export default {
     const base = env.FACTORY_PAGES_URL || "https://digital-products-store-4yt.pages.dev";
     if (!env.FACTORY_CRON_SECRET) throw new Error("FACTORY_CRON_SECRET secret is not configured.");
     const headers = { "content-type": "application/json", "x-factory-cron": env.FACTORY_CRON_SECRET };
+    const settingsRes = await fetch(base + "/api/factory-settings", { method: "GET", headers });
+    if (!settingsRes.ok) throw new Error("Factory settings check failed " + settingsRes.status);
+    const settings = await settingsRes.json();
+    if (!settings.enabled) {
+      console.log("Factory disabled; scheduled run skipped.");
+      return;
+    }
 
     const opportunitiesRes = await fetch(base + "/api/factory-opportunities", { method: "GET", headers });
     const opportunitiesText = await opportunitiesRes.text();
