@@ -24,17 +24,26 @@ function parseDraft(raw){
 function languageCode(language){const raw=String(language||"English").trim();const parts=raw.split(":");if(parts[1])return parts[1].trim().slice(0,3).toUpperCase();const s=parts[0].toLowerCase();const known={"english":"EN","français":"FR","french":"FR","español":"ES","spanish":"ES","german":"DE","deutsch":"DE","portuguese":"PT","português":"PT","italian":"IT","italiano":"IT","arabic":"AR","العربية":"AR","japanese":"JA","日本語":"JA","chinese":"ZH","中文":"ZH","dutch":"NL","nederlands":"NL","russian":"RU","русский":"RU"};return known[s]||s.slice(0,2).toUpperCase()}
 function languageName(language){const code=languageCode(language);const names={EN:"English",FR:"French",ES:"Spanish",DE:"German",PT:"Portuguese",IT:"Italian",AR:"Arabic",JA:"Japanese",ZH:"Chinese",NL:"Dutch",RU:"Russian"};return names[code]||String(language||"English").split(":")[0]}
 async function generateDraft(env,job){
- const code=languageCode(job.language);const secretName="GEMINI_"+code+"_API_KEY";const key=env[secretName];
- if(!key)throw new Error("MISSING_GEMINI_KEY:"+secretName);
+ const preferred="GEMINI_"+languageCode(job.language)+"_API_KEY";
+ const keys=[preferred,"GEMINI_EN_API_KEY","GEMINI_FR_API_KEY","GEMINI_ES_API_KEY"].filter((k,i,a)=>a.indexOf(k)===i&&!!env[k]);
+ if(!keys.length)throw new Error("MISSING_GEMINI_KEY: no Gemini API key is configured.");
  const model=env.GEMINI_MODEL||"gemini-3.8-flash";
  const language=languageName(job.language);
  const prompt="Create a complete, genuinely useful original digital "+job.product_type+" in "+language+". Write naturally for readers in "+job.market+". Topic: "+job.opportunity_title+". Occasion: "+job.occasion+". Create 550-700 words of useful, original content, with a short introduction, 5-6 practical sections, concrete steps and examples, one actionable checklist or worksheet, and a concise conclusion. Avoid filler, repeated ideas, invented statistics, guarantees, and copyrighted brands. Return exactly one valid JSON object with string fields title, description (70-100 words), keywords (8-12 comma-separated search phrases, in "+language+"), and content (550-700 words in Markdown, entirely in "+language+").";
- const response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent",{method:"POST",headers:{"content-type":"application/json","x-goog-api-key":key},body:JSON.stringify({systemInstruction:{parts:[{text:"You are a professional digital publishing editor. Produce original, accurate, commercially useful content in "+language+". Follow the requested JSON format exactly."}]},contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{temperature:0.35,maxOutputTokens:6000,responseMimeType:"application/json"}})});
- const raw=await response.text();let payload={};try{payload=JSON.parse(raw)}catch(_){}
- if(!response.ok){const message=payload?.error?.message||raw.slice(0,500)||("Gemini HTTP "+response.status);const err=new Error("GEMINI_"+response.status+":"+message);err.status=response.status;throw err}
- const generated=payload?.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("\\n")||"";
- if(!generated)throw new Error("Gemini returned an empty draft: "+JSON.stringify(payload.promptFeedback||{}));
- return parseDraft(generated);
+ let quotaErrors=[];
+ for(const secretName of keys){
+  const response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent",{method:"POST",headers:{"content-type":"application/json","x-goog-api-key":env[secretName]},body:JSON.stringify({systemInstruction:{parts:[{text:"You are a professional digital publishing editor. Produce original, accurate, commercially useful content in "+language+". Follow the requested JSON format exactly."}]},contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{temperature:0.35,maxOutputTokens:6000,responseMimeType:"application/json"}})});
+  const raw=await response.text();let payload={};try{payload=JSON.parse(raw)}catch(_){}
+  if(!response.ok){
+   const message=payload?.error?.message||raw.slice(0,500)||("Gemini HTTP "+response.status);
+   if(response.status===429||/resource_exhausted|quota|rate.?limit|free.?tier/i.test(message)){quotaErrors.push(secretName+": "+message);continue}
+   throw new Error("GEMINI_"+response.status+":"+message);
+  }
+  const generated=payload?.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("\\n")||"";
+  if(!generated)throw new Error("Gemini returned an empty draft: "+JSON.stringify(payload.promptFeedback||{}));
+  const draft=parseDraft(generated);draft._gemini_key_used=secretName;return draft;
+ }
+ throw new Error("GEMINI_POOL_EXHAUSTED: all configured Gemini keys are out of quota or rate-limited. "+quotaErrors.join(" | "));
 }
 function pdfEscape(s){return String(s||"").replace(/[^\x20-\xFF]/g,"?").replace(/([\\()])/g,"\\$1")}
 function makePdf(title,body){
