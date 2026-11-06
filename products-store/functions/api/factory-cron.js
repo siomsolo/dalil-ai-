@@ -6,7 +6,7 @@ export async function onRequestPost({request,env}){
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS factory_queue_lock (id INTEGER PRIMARY KEY CHECK(id=1),lock_token TEXT,lock_until TEXT)").run();
   const settings=await env.DB.prepare("SELECT enabled FROM factory_settings WHERE id=1").first();
   if(!settings?.enabled)return Response.json({ok:true,skipped:true,reason:"factory_disabled"});
-  const due=await env.DB.prepare("SELECT job_id FROM factory_retry_schedule WHERE next_retry_at<=CURRENT_TIMESTAMP ORDER BY next_retry_at LIMIT 10").all();
+  const due=await env.DB.prepare("SELECT job_id FROM factory_retry_schedule WHERE datetime(next_retry_at)<=CURRENT_TIMESTAMP ORDER BY next_retry_at LIMIT 10").all();
   let released=0;
   for(const item of (due.results||[])){
    const r=await env.DB.prepare("UPDATE factory_jobs SET status='queued',stage='queued',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='deferred'").bind(item.job_id).run();
