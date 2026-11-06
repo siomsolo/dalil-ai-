@@ -1,4 +1,4 @@
-function auth(request,env){const h=request.headers;return (!!env.ADMIN_PASSWORD&&(h.get("x-admin-token")||"")===env.ADMIN_PASSWORD)|| (!!env.FACTORY_CRON_SECRET&&(h.get("x-factory-cron")||"")===env.FACTORY_CRON_SECRET)}
+async function auth(request,env){const h=request.headers;const admin=(!!env.ADMIN_PASSWORD&&(h.get("x-admin-token")||"")===env.ADMIN_PASSWORD);const configuredCron=(!!env.FACTORY_CRON_SECRET&&(h.get("x-factory-cron")||"")===env.FACTORY_CRON_SECRET);if(admin||configuredCron)return true;const supplied=h.get("x-factory-cron")||"";if(!supplied)return false;try{const row=await env.DB.prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();return !!row?.token&&supplied===row.token}catch(_){return false}}
 function parseDraft(raw){
  if(raw&&typeof raw==="object"){
   const value=raw.response??raw.output_text??raw;
@@ -43,7 +43,7 @@ async function generateDraft(env,job){
  if(!keys.length)throw new Error("MISSING_GEMINI_KEY: configure at least one Gemini API key.");
  const {results:states=[]}=await env.DB.prepare("SELECT provider_key,state,blocked_until FROM factory_provider_state").all();
  const map=new Map(states.map(x=>[x.provider_key,x]));
- const available=keys.filter(k=>{const s=map.get(k);if(!s||s.state==="active"||s.state==="unknown")return true;if(s.state==="exhausted"){const until=s.blocked_until?Date.parse(s.blocked_until):Date.parse(s.updated_at||"")+6*60*60*1000;return Number.isFinite(until)&&until<=Date.now()}return false});
+ const available=keys.filter(k=>{const s=map.get(k);if(!s)return true;const until=s.blocked_until?Date.parse(s.blocked_until):0;if(Number.isFinite(until)&&until>Date.now())return false;if(s.state==="active"||s.state==="unknown")return true;if(s.state==="exhausted")return true;return false});
  if(!available.length){
   const exhausted=keys.filter(k=>map.get(k)?.state==="exhausted");
   if(!exhausted.length)throw new Error("GEMINI_ALL_KEYS_INVALID: all configured Gemini keys are invalid or unavailable. Check the key configuration in Cloudflare.");
@@ -169,7 +169,7 @@ function xml(s){return String(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt
 function makeCover(title,market){const t=xml(title).slice(0,110),m=xml(market);return '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#101c3b"/><stop offset="1" stop-color="#315b75"/></linearGradient></defs><rect width="900" height="1200" fill="url(#g)"/><circle cx="720" cy="260" r="190" fill="#d5a85b" opacity=".18"/><circle cx="160" cy="980" r="260" fill="#8db7a6" opacity=".13"/><path d="M90 160H810M90 1040H810" stroke="#d5a85b" stroke-width="3"/><text x="90" y="220" fill="#e9c987" font-family="Arial" font-size="28" letter-spacing="7">DIGITALNEST WORKBOOK</text><foreignObject x="90" y="380" width="720" height="420"><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:Arial,sans-serif;color:#fff;font-size:64px;font-weight:700;line-height:1.15;overflow-wrap:anywhere">'+t+'</div></foreignObject><text x="90" y="930" fill="#dce8e8" font-family="Arial" font-size="26">'+m.toUpperCase()+' EDITION</text><text x="90" y="1100" fill="#e9c987" font-family="Arial" font-size="24" letter-spacing="5">PLAN · REFLECT · TAKE ACTION</text></svg>'}
 async function processSingle(context){
  const {request,env}=context;
- if(!auth(request,env))return Response.json({error:"Admin authentication failed."},{status:401});
+ if(!await auth(request,env))return Response.json({error:"Admin authentication failed."},{status:401});
  await ensureFactoryTables(env);
  const lockToken=crypto.randomUUID();
  await env.DB.prepare("INSERT INTO factory_queue_lock(id,lock_token,lock_until) VALUES(1,?,datetime('now','+10 minutes')) ON CONFLICT(id) DO UPDATE SET lock_token=excluded.lock_token,lock_until=excluded.lock_until WHERE factory_queue_lock.lock_until<CURRENT_TIMESTAMP OR factory_queue_lock.lock_token IS NULL").bind(lockToken).run();
