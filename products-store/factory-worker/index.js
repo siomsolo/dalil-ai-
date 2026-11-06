@@ -25,8 +25,8 @@ export default {
       if (!planRes.ok) throw new Error("Planner failed " + planRes.status + ": " + planText.slice(0, 300));
       const plan = JSON.parse(planText);
       console.log("Factory plan", plan);
-      if (!Number(plan.queued || 0)) break;
-
+      // Always attempt one queued job, even when planning found no new opportunities.
+      // This drains jobs left in the queue by earlier runs.
       const processRes = await fetch(base + "/api/factory-process", { method: "POST", headers, body: "{}" });
       const processText = await processRes.text();
       let result = {};
@@ -36,7 +36,11 @@ export default {
         console.error("Factory attempt failed", result);
         continue;
       }
-      completed += Number(result.processed || 1);
+      if (!result.slug) {
+        console.log("No queued factory jobs remain.");
+        break;
+      }
+      completed += 1;
       console.log("Factory product completed", result);
     }
     console.log("Factory daily run finished", { completed, failures });
