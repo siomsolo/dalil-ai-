@@ -1,36 +1,29 @@
 const $=s=>document.querySelector(s);let token="";const esc=s=>String(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));function msg(s,bad=false){$("#factory-status").innerHTML='<div class="notice '+(bad?"danger":"")+'">'+esc(s)+'</div>'}async function api(path,opts={}){const r=await fetch(path,{...opts,headers:{...(opts.headers||{}),"x-admin-token":token,"content-type":"application/json"}});let d={};try{d=await r.json()}catch{}if(!r.ok)throw new Error(r.status===401?"رمز الإدارة غير صحيح أو لم يتم إدخاله. أعد تحميل الصفحة وأدخل كلمة مرور إدارة المتجر.":(d.error||"Request failed ("+r.status+")"));return d}async function loadFactory(){try{const s=await api("/api/factory-settings");$("#factory-workspace").hidden=false;$("#factory-enabled").checked=!!s.enabled;$("#factory-auto").checked=!!s.auto_publish;$("#factory-cap").value=s.daily_product_cap;$("#factory-seasonal").checked=!!s.seasonal_enabled;document.querySelectorAll('input[name="factory-language"]').forEach(x=>x.checked=(s.languages||["English","French","Spanish"]).includes(x.value));const baseLanguages=["English","French","Spanish"];if($("#factory-extra-languages"))$("#factory-extra-languages").value=(s.languages||[]).filter(x=>!baseLanguages.includes(x)).join(", ");if($("#factory-gemini-status")){$("#factory-gemini-status").innerHTML=(s.languages||baseLanguages).map(v=>{const bits=String(v).split(":");const code=(bits[1]||({English:"EN",French:"FR",Spanish:"ES",German:"DE",Portuguese:"PT",Italian:"IT",Arabic:"AR"}[bits[0]]||bits[0].slice(0,2))).toUpperCase();return v+": "+(s.gemini_projects?.[code]?"<span class='tag'>Configured</span>":"<span class='tag'>Key required</span>")}).join(" · ");}if(s.preview_read_only){$("#factory-preview-note").hidden=false;["factory-enabled","factory-auto","factory-cap","factory-seasonal"].forEach(id=>$("#"+id).disabled=true);$("#factory-save").hidden=true;$("#factory-run").hidden=true;}else{$("#factory-preview-note").hidden=true;}await refresh();msg(s.preview_read_only?"تم فتح المعاينة بوضع القراءة فقط.":"تم تحميل إعدادات المصنع بنجاح.")}catch(e){msg(e.message,true)}};$("#factory-save").onclick=async()=>{try{const d=await api("/api/factory-settings",{method:"POST",body:JSON.stringify({enabled:$("#factory-enabled").checked,auto_publish:$("#factory-auto").checked,daily_product_cap:Number($("#factory-cap").value),seasonal_enabled:$("#factory-seasonal").checked,languages:Array.from(document.querySelectorAll('input[name="factory-language"]:checked'),x=>x.value).concat(($("#factory-extra-languages")?.value||"").split(",").map(x=>x.trim()).filter(Boolean))})});msg("تم حفظ الإعدادات واللغات المختارة. المصنع "+(d.settings.enabled?"مفعّل":"متوقف")+".");await loadFactory()}catch(e){msg(e.message,true)}};let factoryRunning=false;
 async function runPersistentQueue(resume=false){
- const button=$("#factory-run");if(factoryRunning)return;factoryRunning=true;button.disabled=true;button.textContent="Production queue running…";
- let completed=0,failures=0;
+ const button=$("#factory-run"),resumeButton=$("#factory-resume");
+ if(factoryRunning)return;factoryRunning=true;button.disabled=true;if(resumeButton)resumeButton.disabled=true;
+ button.textContent="Sequential queue active…";
  try{
   if(!resume){
    const planned=await api("/api/factory-run",{method:"POST",body:"{}"});
    if(!planned.ok)throw new Error(planned.error||"Could not enqueue opportunities.");
-   msg("Queue prepared: "+(planned.queued||0)+" new jobs; "+(planned.pending||0)+" queued in total. Processing one product at a time.");
+   msg("Queue prepared: "+(planned.queued||0)+" new jobs; "+(planned.pending||0)+" queued in total. Cloudflare will process the queue sequentially in the background.");
   }else{
-   await api("/api/factory-resume",{method:"POST",body:"{}"});
-   msg("Checking available AI quotas and resuming the saved queue…");
+   const restarted=await api("/api/factory-resume",{method:"POST",body:"{}"});
+   msg("Queue resumed: "+(restarted.pending||0)+" jobs pending. Checking the renewed AI quotas…");
   }
-  for(let i=0;i<250;i++){
-   let result;
-   try{result=await api("/api/factory-process",{method:"POST",body:"{}"})}
-   catch(e){
-    if(/quota|GEMINI_POOL_EXHAUSTED|MISSING_GEMINI_KEY|429|rate.?limit|Cloudflare.*allocation/i.test(e.message)){
-     msg("AI quota exhausted. "+completed+" product(s) completed in this session. The queue is saved. Has the free quota renewed? Press “Resume after quota renewal” when it has.",true);
-     return;
-    }
-    failures++;msg("A job failed: "+e.message+". Moving to the next queued job…",true);
-    continue;
-   }
-   if(result.empty){msg("Queue completed. "+completed+" product(s) created in this session. Failed jobs: "+failures+". New opportunities can be added with Start production.");break}
-   if(!result.ok)throw new Error(result.error||"Queue processing failed.");
-   completed++;
-   msg("Product "+completed+" completed: "+result.title+" ("+result.wordCount+" words). Gemini: "+(result.geminiKeyUsed||"key not reported")+". Cover: "+(result.coverGenerated?"Cloudflare AI image":result.coverFallback?"Cloudflare quota/error fallback":"not reported")+". Continuing sequentially…");
-   await refresh();
-   if(i===249)msg("Safety limit of 250 products per browser session reached. The remaining queue is saved; press Resume to continue.",true);
-  }
- }catch(e){msg("Queue paused: "+e.message+". Saved jobs remain in the queue; you can resume after resolving the issue.",true)}
- finally{factoryRunning=false;button.disabled=false;button.textContent="Start production";const resume=$("#factory-resume");if(resume)resume.disabled=false;try{await refresh()}catch(_){}}
+  const result=await api("/api/factory-process",{method:"POST",body:"{}"});
+  if(result.empty){msg("No queued jobs remain. The production queue is complete.");}
+  else if(result.ok){msg("Created "+result.title+" ("+result.wordCount+" words). Gemini key: "+(result.geminiKeyUsed||"not reported")+". Cover: "+(result.coverGenerated?"Cloudflare AI image":result.coverFallback?"SVG fallback":"not reported")+". The next product is being processed automatically in the background.");}
+  await refresh();
+ }catch(e){
+  const quota=/quota|GEMINI_POOL_EXHAUSTED|MISSING_GEMINI_KEY|429|rate.?limit/i.test(e.message);
+  msg((quota?"AI quota exhausted. The queue is saved. Has the free quota renewed? Press “Resume after quota renewal” after it renews. ":"Queue paused safely: ")+e.message,true);
+  try{await refresh()}catch(_){}
+ }finally{
+  factoryRunning=false;button.disabled=false;if(resumeButton)resumeButton.disabled=false;
+  button.textContent="Start production";
+ }
 }
 $("#factory-run").onclick=()=>runPersistentQueue(false);
 const resumeButton=$("#factory-resume");
