@@ -45,7 +45,7 @@ async function generateDraft(env,job){
  for(const secretName of available){
   let response,raw,payload={},message="";
   for(let attempt=0;attempt<2;attempt++){
-   response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent",{method:"POST",headers:{"content-type":"application/json","x-goog-api-key":env[secretName]},body:requestBody});
+   try{response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent",{method:"POST",headers:{"content-type":"application/json","x-goog-api-key":env[secretName]},body:requestBody,signal:AbortSignal.timeout(45000)});}catch(fetchError){temporaryFailures.push(secretName+": request timeout/network error: "+String(fetchError?.message||fetchError));response=null;break;}
    raw=await response.text();payload={};try{payload=JSON.parse(raw)}catch(_){}
    if(response.ok)break;
    message=payload?.error?.message||raw.slice(0,500)||("Gemini HTTP "+response.status);
@@ -54,6 +54,7 @@ async function generateDraft(env,job){
    const waitMs=Number.isFinite(retryAfter)&&retryAfter>0?Math.min(retryAfter*1000,5000):1200;
    await new Promise(resolve=>setTimeout(resolve,waitMs));
   }
+  if(!response)continue;
   if(!response.ok){
    if(quotaError(response.status,message)){
     await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'exhausted',?,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='exhausted',last_error=excluded.last_error,blocked_until=NULL,updated_at=CURRENT_TIMESTAMP").bind(secretName,String(message).slice(0,800)).run();
@@ -146,6 +147,8 @@ async function processSingle(context){
  await env.DB.prepare("INSERT INTO factory_queue_lock(id,lock_token,lock_until) VALUES(1,?,datetime('now','+10 minutes')) ON CONFLICT(id) DO UPDATE SET lock_token=excluded.lock_token,lock_until=excluded.lock_until WHERE factory_queue_lock.lock_until<CURRENT_TIMESTAMP OR factory_queue_lock.lock_token IS NULL").bind(lockToken).run();
  const lock=await env.DB.prepare("SELECT lock_token FROM factory_queue_lock WHERE id=1").first();
  if(lock?.lock_token!==lockToken)return Response.json({error:"Another production task is already running. The queue is sequential; wait for it to finish."},{status:409});
+  // Recover a job only after this worker has acquired the queue lock; this means the previous lease expired.
+  await env.DB.prepare("UPDATE factory_jobs SET status='queued',stage='queued',error='Recovered automatically after a stalled worker timeout.',updated_at=CURRENT_TIMESTAMP WHERE status='running' AND updated_at < datetime('now','-10 minutes')").run();
  let activeJobId=null;
  try{
   const settings=await env.DB.prepare("SELECT * FROM factory_settings WHERE id=1").first();
