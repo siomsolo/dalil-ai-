@@ -39,15 +39,28 @@ async function generateDraft(env,job){
  if(!available.length)throw new Error("GEMINI_POOL_EXHAUSTED: all configured Gemini keys are marked quota-limited or invalid. Check quota, then choose Resume in the factory.");
  const model=env.GEMINI_MODEL||"gemini-3.8-flash",language=languageName(job.language);
  const prompt="Create a complete, genuinely useful original digital "+job.product_type+" in "+language+". Write naturally for readers in "+job.market+". Topic: "+job.opportunity_title+". Occasion: "+job.occasion+". Create 550-700 words of useful, original content, with a short introduction, 5-6 practical sections, concrete steps and examples, one actionable checklist or worksheet, and a concise conclusion. Avoid filler, repeated ideas, invented statistics, guarantees, and copyrighted brands. Return exactly one valid JSON object with string fields title, description (70-100 words), keywords (8-12 comma-separated search phrases, in "+language+"), and content (550-700 words in Markdown, entirely in "+language+").";
- const failures=[];
+ const failures=[],temporaryFailures=[];
+ const requestBody=JSON.stringify({systemInstruction:{parts:[{text:"You are a professional digital publishing editor. Produce original, accurate, commercially useful content in "+language+". Follow the requested JSON format exactly."}]},contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{temperature:0.35,maxOutputTokens:6000,responseMimeType:"application/json"}});
  for(const secretName of available){
-  const response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent",{method:"POST",headers:{"content-type":"application/json","x-goog-api-key":env[secretName]},body:JSON.stringify({systemInstruction:{parts:[{text:"You are a professional digital publishing editor. Produce original, accurate, commercially useful content in "+language+". Follow the requested JSON format exactly."}]},contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{temperature:0.35,maxOutputTokens:6000,responseMimeType:"application/json"}})});
-  const raw=await response.text();let payload={};try{payload=JSON.parse(raw)}catch(_){}
+  let response,raw,payload={},message="";
+  for(let attempt=0;attempt<2;attempt++){
+   response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent",{method:"POST",headers:{"content-type":"application/json","x-goog-api-key":env[secretName]},body:requestBody});
+   raw=await response.text();payload={};try{payload=JSON.parse(raw)}catch(_){}
+   if(response.ok)break;
+   message=payload?.error?.message||raw.slice(0,500)||("Gemini HTTP "+response.status);
+   if(response.status!==503||attempt===1)break;
+   const retryAfter=Number(response.headers.get("retry-after"));
+   const waitMs=Number.isFinite(retryAfter)&&retryAfter>0?Math.min(retryAfter*1000,5000):1200;
+   await new Promise(resolve=>setTimeout(resolve,waitMs));
+  }
   if(!response.ok){
-   const message=payload?.error?.message||raw.slice(0,500)||("Gemini HTTP "+response.status);
    if(quotaError(response.status,message)){
     await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'exhausted',?,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='exhausted',last_error=excluded.last_error,blocked_until=NULL,updated_at=CURRENT_TIMESTAMP").bind(secretName,String(message).slice(0,800)).run();
     failures.push(secretName+": "+message);continue;
+   }
+   if(response.status===503||response.status===500||response.status===502||response.status===504){
+    temporaryFailures.push(secretName+": HTTP "+response.status+" "+message);
+    continue;
    }
    if(response.status===401||response.status===403){
     await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'invalid',?,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='invalid',last_error=excluded.last_error,updated_at=CURRENT_TIMESTAMP").bind(secretName,String(message).slice(0,800)).run();
@@ -55,11 +68,12 @@ async function generateDraft(env,job){
    }
    throw new Error("GEMINI_"+response.status+":"+message);
   }
-  const generated=payload?.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("\\n")||"";
+  const generated=payload?.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("\n")||"";
   if(!generated)throw new Error("Gemini returned an empty draft: "+JSON.stringify(payload.promptFeedback||{}));
   await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'active',NULL,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='active',last_error=NULL,blocked_until=NULL,updated_at=CURRENT_TIMESTAMP").bind(secretName).run();
   const draft=parseDraft(generated);draft._gemini_key_used=secretName;return draft;
  }
+ if(temporaryFailures.length)throw new Error("GEMINI_TEMPORARY_UNAVAILABLE: Gemini is temporarily overloaded (503/high demand) or unavailable. Tried other configured keys and retried 503 once per key. The job stays queued for a later retry. "+temporaryFailures.join(" | "));
  throw new Error("GEMINI_POOL_EXHAUSTED: no usable Gemini key remains. "+failures.join(" | "));
 }
 async function generateCloudflareCover(env,id,title,market,productType,description,occasion){
@@ -172,11 +186,13 @@ async function processSingle(context){
   if(activeJobId){
    try{
     const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|MISSING_GEMINI_KEY|GEMINI_POOL_EXHAUSTED/i.test(String(e.message||e));
-    await env.DB.prepare("UPDATE factory_jobs SET status=?,stage=?,error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(quota?"deferred":"failed",quota?"waiting_for_gemini":"failed",String(e.message||e).slice(0,1000),activeJobId).run();
+    const temporary=/GEMINI_TEMPORARY_UNAVAILABLE/i.test(String(e.message||e));
+    await env.DB.prepare("UPDATE factory_jobs SET status=?,stage=?,error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(quota?"deferred":temporary?"queued":"failed",quota?"waiting_for_gemini":temporary?"waiting_for_gemini_service":"failed",String(e.message||e).slice(0,1000),activeJobId).run();
    }catch(_){}
   }
   const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|MISSING_GEMINI_KEY|GEMINI_POOL_EXHAUSTED/i.test(String(e.message||e));
-  return Response.json({error:e.message||"Factory processing failed.",quotaExhausted:quota},{status:quota?429:502});
+  const temporary=/GEMINI_TEMPORARY_UNAVAILABLE/i.test(String(e.message||e));
+  return Response.json({error:e.message||"Factory processing failed.",quotaExhausted:quota,temporaryUnavailable:temporary,jobKeptQueued:temporary},{status:quota?429:temporary?503:502});
  }finally{
   await env.DB.prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run().catch(()=>{});
  }
