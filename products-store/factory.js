@@ -18,7 +18,9 @@ async function runPersistentQueue(resume=false){
   await refresh();
  }catch(e){
   const quota=/quota|GEMINI_POOL_EXHAUSTED|MISSING_GEMINI_KEY|429|rate.?limit/i.test(e.message);
-  msg((quota?"AI quota exhausted. The queue is saved. Has the free quota renewed? Press “Resume after quota renewal” after it renews. ":"Queue paused safely: ")+e.message,true);
+  const temporary=/GEMINI_TEMPORARY_UNAVAILABLE|high demand|temporarily unavailable|503/i.test(e.message);
+  if(temporary)msg("Gemini is temporarily overloaded (503/high demand), not necessarily out of free quota. The current job remains saved and Cloudflare will retry it up to 3 times with short delays. If all retries fail, press Start production again later; use Resume after quota renewal only when the free quota is actually renewed.",true);
+  else msg((quota?"AI quota exhausted. The queue is saved. Has the free quota renewed? Press “Resume after quota renewal” after it renews. ":"Queue paused safely: ")+e.message,true);
   try{await refresh()}catch(_){}
  }finally{
   factoryRunning=false;button.disabled=false;if(resumeButton)resumeButton.disabled=false;
