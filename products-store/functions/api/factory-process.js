@@ -44,7 +44,12 @@ async function generateDraft(env,job){
  const {results:states=[]}=await env.DB.prepare("SELECT provider_key,state,blocked_until FROM factory_provider_state").all();
  const map=new Map(states.map(x=>[x.provider_key,x]));
  const available=keys.filter(k=>{const s=map.get(k);if(!s||s.state==="active"||s.state==="unknown")return true;if(s.state==="exhausted"){const until=s.blocked_until?Date.parse(s.blocked_until):Date.parse(s.updated_at||"")+6*60*60*1000;return Number.isFinite(until)&&until<=Date.now()}return false});
- if(!available.length){const waits=keys.map(k=>{const s=map.get(k);if(!s||s.state!=="exhausted")return null;return s.blocked_until||retryAtFromMessage(s.last_error,Math.max(60000,6*60*60*1000))}).filter(Boolean).sort();throw new Error("GEMINI_POOL_EXHAUSTED: all configured Gemini keys are temporarily quota-limited. Earliest retry: "+(waits[0]||new Date(Date.now()+6*60*60*1000).toISOString()));}
+ if(!available.length){
+  const exhausted=keys.filter(k=>map.get(k)?.state==="exhausted");
+  if(!exhausted.length)throw new Error("GEMINI_ALL_KEYS_INVALID: all configured Gemini keys are invalid or unavailable. Check the key configuration in Cloudflare.");
+  const waits=exhausted.map(k=>{const s=map.get(k);return s.blocked_until||retryAtFromMessage(s.last_error,6*60*60*1000)}).filter(Boolean).sort();
+  throw new Error("GEMINI_POOL_EXHAUSTED: all configured Gemini keys are temporarily quota-limited. Earliest retry: "+(waits[0]||new Date(Date.now()+6*60*60*1000).toISOString()));
+ }
  const model=env.GEMINI_MODEL||"gemini-3.8-flash",language=languageName(job.language);
  const prompt="Create a complete, genuinely useful original digital "+job.product_type+" in "+language+". Write naturally for readers in "+job.market+". Topic: "+job.opportunity_title+". Occasion: "+job.occasion+". Create 550-700 words of useful, original content, with a short introduction, 5-6 practical sections, concrete steps and examples, one actionable checklist or worksheet, and a concise conclusion. Avoid filler, repeated ideas, invented statistics, guarantees, and copyrighted brands. Return exactly one valid JSON object with string fields title, description (70-100 words), keywords (8-12 comma-separated search phrases, in "+language+"), and content (550-700 words in Markdown, entirely in "+language+").";
  const failures=[],temporaryFailures=[];
