@@ -79,7 +79,7 @@ async function generateCloudflareCover(env,id,title,market,productType,descripti
   return {imageKey:key,contentType:"image/jpeg",generated:true,fallback:false};
  }catch(error){
   const message=String(error?.message||error);
-  const dailyLimit=/3036|daily free allocation|10,000 neurons|account limited/i.test(message);
+  const dailyLimit=/3036|429|rate.?limit|quota|resource.?exhausted|free.?allocation|daily.*limit|10,000 neurons|account limited/i.test(message);
   if(dailyLimit){
    const next=new Date();next.setUTCHours(24,0,0,0);
    await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'exhausted',?,?,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='exhausted',last_error=excluded.last_error,blocked_until=excluded.blocked_until,updated_at=CURRENT_TIMESTAMP").bind(provider,"Cloudflare Workers AI daily image allocation exhausted: "+message.slice(0,500),next.toISOString()).run();
@@ -123,7 +123,8 @@ function makePdf(title,body){
 }
 function xml(s){return String(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
 function makeCover(title,market){const t=xml(title).slice(0,110),m=xml(market);return '<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200"><defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#101c3b"/><stop offset="1" stop-color="#315b75"/></linearGradient></defs><rect width="900" height="1200" fill="url(#g)"/><circle cx="720" cy="260" r="190" fill="#d5a85b" opacity=".18"/><circle cx="160" cy="980" r="260" fill="#8db7a6" opacity=".13"/><path d="M90 160H810M90 1040H810" stroke="#d5a85b" stroke-width="3"/><text x="90" y="220" fill="#e9c987" font-family="Arial" font-size="28" letter-spacing="7">DIGITALNEST WORKBOOK</text><foreignObject x="90" y="380" width="720" height="420"><div xmlns="http://www.w3.org/1999/xhtml" style="font-family:Arial,sans-serif;color:#fff;font-size:64px;font-weight:700;line-height:1.15;overflow-wrap:anywhere">'+t+'</div></foreignObject><text x="90" y="930" fill="#dce8e8" font-family="Arial" font-size="26">'+m.toUpperCase()+' EDITION</text><text x="90" y="1100" fill="#e9c987" font-family="Arial" font-size="24" letter-spacing="5">PLAN · REFLECT · TAKE ACTION</text></svg>'}
-async function processSingle({request,env}){
+async function processSingle(context){
+ const {request,env}=context;
  if(!auth(request,env))return Response.json({error:"Admin authentication failed."},{status:401});
  await ensureFactoryTables(env);
  const lockToken=crypto.randomUUID();
@@ -163,6 +164,9 @@ async function processSingle({request,env}){
   const status=settings.auto_publish?"published":"draft";
   await env.DB.prepare("INSERT INTO products (id,slug,title,description,category,language,market,occasion,keywords,price,file_key,file_name,file_type,image_key,image_url,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,slug,String(data.title).trim(),String(data.description).trim(),job.product_type,languageName(job.language),job.market,job.occasion,keywords,5,key,"digitalnest-generated.pdf","application/pdf",cover.imageKey,imageUrl,status).run();
   await env.DB.prepare("UPDATE factory_jobs SET status=?,stage='quality_passed',product_slug=?,actual_neurons=0,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(settings.auto_publish?"published":"review",slug,job.id).run();
+  await env.DB.prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run();
+  const nextCount=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
+  if(Number(nextCount?.n||0)>0){const internalSecret=env.FACTORY_CRON_SECRET||env.ADMIN_PASSWORD;if(internalSecret){const nextUrl=new URL(request.url);context.waitUntil(fetch(nextUrl.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":internalSecret},body:"{}"}).then(r=>{if(!r.ok)console.log("FACTORY_QUEUE_CHAIN_STATUS",r.status)}).catch(e=>console.log("FACTORY_QUEUE_CHAIN_ERROR",String(e))))}}
   return Response.json({ok:true,status,slug,title:data.title,wordCount,geminiKeyUsed:data._gemini_key_used||null,coverGenerated:cover.generated,coverFallback:cover.fallback,coverProvider:"Cloudflare Workers AI",coverReason:cover.reason||null});
  }catch(e){
   if(activeJobId){
