@@ -26,6 +26,7 @@ function languageName(language){const code=languageCode(language);const names={E
 async function ensureFactoryTables(env){
  await env.DB.prepare("CREATE TABLE IF NOT EXISTS factory_provider_state (provider_key TEXT PRIMARY KEY,state TEXT NOT NULL DEFAULT 'active',last_error TEXT,blocked_until TEXT,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)").run();
  await env.DB.prepare("CREATE TABLE IF NOT EXISTS factory_queue_lock (id INTEGER PRIMARY KEY CHECK(id=1),lock_token TEXT,lock_until TEXT)").run();
+ await env.DB.prepare("CREATE TABLE IF NOT EXISTS factory_retry_state (job_id TEXT PRIMARY KEY,attempts INTEGER NOT NULL DEFAULT 0,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)").run();
 }
 function quotaError(status,message){const m=String(message||"").toLowerCase();return status===429||m.includes("resource_exhausted")||m.includes("quota")||m.includes("rate limit")||m.includes("rate_limit")||m.includes("free_tier")}
 async function generateDraft(env,job){
@@ -178,6 +179,7 @@ async function processSingle(context){
   const status=settings.auto_publish?"published":"draft";
   await env.DB.prepare("INSERT INTO products (id,slug,title,description,category,language,market,occasion,keywords,price,file_key,file_name,file_type,image_key,image_url,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,slug,String(data.title).trim(),String(data.description).trim(),job.product_type,languageName(job.language),job.market,job.occasion,keywords,5,key,"digitalnest-generated.pdf","application/pdf",cover.imageKey,imageUrl,status).run();
   await env.DB.prepare("UPDATE factory_jobs SET status=?,stage='quality_passed',product_slug=?,actual_neurons=0,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(settings.auto_publish?"published":"review",slug,job.id).run();
+  await env.DB.prepare("DELETE FROM factory_retry_state WHERE job_id=?").bind(job.id).run();
   await env.DB.prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run();
   const nextCount=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
   if(Number(nextCount?.n||0)>0){const internalSecret=env.FACTORY_CRON_SECRET||env.ADMIN_PASSWORD;if(internalSecret){const nextUrl=new URL(request.url);context.waitUntil(fetch(nextUrl.toString(),{method:"POST",headers:{"content-type":"application/json",[env.FACTORY_CRON_SECRET?"x-factory-cron":"x-admin-token"]:internalSecret},body:"{}"}).then(r=>{if(!r.ok)console.log("FACTORY_QUEUE_CHAIN_STATUS",r.status)}).catch(e=>console.log("FACTORY_QUEUE_CHAIN_ERROR",String(e))))}}
@@ -188,6 +190,20 @@ async function processSingle(context){
     const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|MISSING_GEMINI_KEY|GEMINI_POOL_EXHAUSTED/i.test(String(e.message||e));
     const temporary=/GEMINI_TEMPORARY_UNAVAILABLE/i.test(String(e.message||e));
     await env.DB.prepare("UPDATE factory_jobs SET status=?,stage=?,error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(quota?"deferred":temporary?"queued":"failed",quota?"waiting_for_gemini":temporary?"waiting_for_gemini_service":"failed",String(e.message||e).slice(0,1000),activeJobId).run();
+    if(temporary){
+     await env.DB.prepare("INSERT INTO factory_retry_state(job_id,attempts,updated_at) VALUES(?,1,CURRENT_TIMESTAMP) ON CONFLICT(job_id) DO UPDATE SET attempts=attempts+1,updated_at=CURRENT_TIMESTAMP").bind(activeJobId).run();
+     const retry=await env.DB.prepare("SELECT attempts FROM factory_retry_state WHERE job_id=?").bind(activeJobId).first();
+     const attempts=Number(retry?.attempts||1);
+     if(attempts<=3){
+      const secret=env.FACTORY_CRON_SECRET||env.ADMIN_PASSWORD;
+      if(secret&&context?.waitUntil){
+       const retryUrl=new URL(request.url),header=env.FACTORY_CRON_SECRET?"x-factory-cron":"x-admin-token";
+       context.waitUntil((async()=>{await new Promise(resolve=>setTimeout(resolve,5000*attempts));const rr=await fetch(retryUrl.toString(),{method:"POST",headers:{"content-type":"application/json",[header]:secret},body:"{}"});if(!rr.ok)console.log("FACTORY_503_RETRY_STATUS",rr.status)})().catch(err=>console.log("FACTORY_503_RETRY_ERROR",String(err))));
+      }
+     }else{
+      await env.DB.prepare("UPDATE factory_jobs SET status='deferred',stage='waiting_for_gemini_service',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(activeJobId).run();
+     }
+    }
    }catch(_){}
   }
   const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|MISSING_GEMINI_KEY|GEMINI_POOL_EXHAUSTED/i.test(String(e.message||e));
