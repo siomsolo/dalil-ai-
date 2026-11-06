@@ -8,3 +8,5 @@ CREATE INDEX IF NOT EXISTS idx_product_events_slug_type ON product_events(produc
 CREATE INDEX IF NOT EXISTS idx_product_events_created ON product_events(created_at);
 
 CREATE TABLE IF NOT EXISTS factory_scheduler_auth (id INTEGER PRIMARY KEY CHECK(id=1), token TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
+
+CREATE TABLE IF NOT EXISTS factory_retry_schedule (job_id TEXT PRIMARY KEY, attempts INTEGER NOT NULL DEFAULT 0, next_retry_at TEXT NOT NULL, reason TEXT, updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
