@@ -27,8 +27,15 @@ async function ensureFactoryTables(env){
  await env.DB.prepare("CREATE TABLE IF NOT EXISTS factory_provider_state (provider_key TEXT PRIMARY KEY,state TEXT NOT NULL DEFAULT 'active',last_error TEXT,blocked_until TEXT,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)").run();
  await env.DB.prepare("CREATE TABLE IF NOT EXISTS factory_queue_lock (id INTEGER PRIMARY KEY CHECK(id=1),lock_token TEXT,lock_until TEXT)").run();
  await env.DB.prepare("CREATE TABLE IF NOT EXISTS factory_retry_state (job_id TEXT PRIMARY KEY,attempts INTEGER NOT NULL DEFAULT 0,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)").run();
+ await env.DB.prepare("CREATE TABLE IF NOT EXISTS factory_retry_schedule (job_id TEXT PRIMARY KEY,attempts INTEGER NOT NULL DEFAULT 0,next_retry_at TEXT NOT NULL,reason TEXT,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)").run();
 }
 function quotaError(status,message){const m=String(message||"").toLowerCase();return status===429||m.includes("resource_exhausted")||m.includes("quota")||m.includes("rate limit")||m.includes("rate_limit")||m.includes("free_tier")}
+function retryAtFromMessage(message,fallbackMs=6*60*60*1000){
+ const s=String(message||"");const m=s.match(/retry in\s+(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+(?:\.\d+)?)s)?/i);
+ if(!m)return new Date(Date.now()+fallbackMs).toISOString();
+ const ms=(Number(m[1]||0)*3600+Number(m[2]||0)*60+Number(m[3]||0))*1000;
+ return new Date(Date.now()+Math.max(60000,ms||fallbackMs)).toISOString();
+}
 async function generateDraft(env,job){
  await ensureFactoryTables(env);
  const preferred="GEMINI_"+languageCode(job.language)+"_API_KEY";
@@ -36,8 +43,8 @@ async function generateDraft(env,job){
  if(!keys.length)throw new Error("MISSING_GEMINI_KEY: configure at least one Gemini API key.");
  const {results:states=[]}=await env.DB.prepare("SELECT provider_key,state,blocked_until FROM factory_provider_state").all();
  const map=new Map(states.map(x=>[x.provider_key,x]));
- const available=keys.filter(k=>{const s=map.get(k);return !s||s.state==="active"||s.state==="unknown"||(s.blocked_until&&Date.parse(s.blocked_until)<=Date.now())});
- if(!available.length)throw new Error("GEMINI_POOL_EXHAUSTED: all configured Gemini keys are marked quota-limited or invalid. Check quota, then choose Resume in the factory.");
+ const available=keys.filter(k=>{const s=map.get(k);if(!s||s.state==="active"||s.state==="unknown")return true;if(s.state==="exhausted"){const until=s.blocked_until?Date.parse(s.blocked_until):Date.parse(s.updated_at||"")+6*60*60*1000;return Number.isFinite(until)&&until<=Date.now()}return false});
+ if(!available.length){const waits=keys.map(k=>{const s=map.get(k);if(!s||s.state!=="exhausted")return null;return s.blocked_until||retryAtFromMessage(s.last_error,Math.max(60000,6*60*60*1000))}).filter(Boolean).sort();throw new Error("GEMINI_POOL_EXHAUSTED: all configured Gemini keys are temporarily quota-limited. Earliest retry: "+(waits[0]||new Date(Date.now()+6*60*60*1000).toISOString()));}
  const model=env.GEMINI_MODEL||"gemini-3.8-flash",language=languageName(job.language);
  const prompt="Create a complete, genuinely useful original digital "+job.product_type+" in "+language+". Write naturally for readers in "+job.market+". Topic: "+job.opportunity_title+". Occasion: "+job.occasion+". Create 550-700 words of useful, original content, with a short introduction, 5-6 practical sections, concrete steps and examples, one actionable checklist or worksheet, and a concise conclusion. Avoid filler, repeated ideas, invented statistics, guarantees, and copyrighted brands. Return exactly one valid JSON object with string fields title, description (70-100 words), keywords (8-12 comma-separated search phrases, in "+language+"), and content (550-700 words in Markdown, entirely in "+language+").";
  const failures=[],temporaryFailures=[];
@@ -59,7 +66,8 @@ async function generateDraft(env,job){
   if(!response){console.log("FACTORY_GEMINI_KEY_FAILOVER",JSON.stringify({provider_key:secretName,next_provider:available[keyIndex+1]||null,reason:"network_timeout_or_connection_error"}));continue;}
   if(!response.ok){
    if(quotaError(response.status,message)){
-    await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'exhausted',?,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='exhausted',last_error=excluded.last_error,blocked_until=NULL,updated_at=CURRENT_TIMESTAMP").bind(secretName,String(message).slice(0,800)).run();
+    const blockedUntil=retryAtFromMessage(message,6*60*60*1000);
+    await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'exhausted',?,?,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='exhausted',last_error=excluded.last_error,blocked_until=excluded.blocked_until,updated_at=CURRENT_TIMESTAMP").bind(secretName,String(message).slice(0,800),blockedUntil).run();
     failures.push(secretName+": "+message);console.log("FACTORY_GEMINI_KEY_FAILOVER",JSON.stringify({provider_key:secretName,next_provider:available[keyIndex+1]||null,reason:"quota_or_rate_limit",status:response.status}));continue;
    }
    if(response.status===503||response.status===500||response.status===502||response.status===504){
@@ -198,6 +206,7 @@ async function processSingle(context){
   await env.DB.prepare("INSERT INTO products (id,slug,title,description,category,language,market,occasion,keywords,price,file_key,file_name,file_type,image_key,image_url,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,slug,String(data.title).trim(),String(data.description).trim(),job.product_type,languageName(job.language),job.market,job.occasion,keywords,5,key,"digitalnest-generated.pdf","application/pdf",cover.imageKey,imageUrl,status).run();
   await env.DB.prepare("UPDATE factory_jobs SET status=?,stage='quality_passed',product_slug=?,actual_neurons=0,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(settings.auto_publish?"published":"review",slug,job.id).run();
   await env.DB.prepare("DELETE FROM factory_retry_state WHERE job_id=?").bind(job.id).run();
+  await env.DB.prepare("DELETE FROM factory_retry_schedule WHERE job_id=?").bind(job.id).run();
   await env.DB.prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run();
   const nextCount=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
   if(Number(nextCount?.n||0)>0){const internalSecret=env.FACTORY_CRON_SECRET||env.ADMIN_PASSWORD;if(internalSecret){const nextUrl=new URL(request.url);context.waitUntil(fetch(nextUrl.toString(),{method:"POST",headers:{"content-type":"application/json",[env.FACTORY_CRON_SECRET?"x-factory-cron":"x-admin-token"]:internalSecret},body:"{}"}).then(r=>{if(!r.ok)console.log("FACTORY_QUEUE_CHAIN_STATUS",r.status)}).catch(e=>console.log("FACTORY_QUEUE_CHAIN_ERROR",String(e))))}}
@@ -205,22 +214,24 @@ async function processSingle(context){
  }catch(e){
   if(activeJobId){
    try{
-    const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|MISSING_GEMINI_KEY|GEMINI_POOL_EXHAUSTED/i.test(String(e.message||e));
-    const temporary=/GEMINI_TEMPORARY_UNAVAILABLE/i.test(String(e.message||e));
-    await env.DB.prepare("UPDATE factory_jobs SET status=?,stage=?,error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(quota?"deferred":temporary?"queued":"failed",quota?"waiting_for_gemini":temporary?"waiting_for_gemini_service":"failed",String(e.message||e).slice(0,1000),activeJobId).run();
-    if(temporary){
-     await env.DB.prepare("INSERT INTO factory_retry_state(job_id,attempts,updated_at) VALUES(?,1,CURRENT_TIMESTAMP) ON CONFLICT(job_id) DO UPDATE SET attempts=attempts+1,updated_at=CURRENT_TIMESTAMP").bind(activeJobId).run();
-     const retry=await env.DB.prepare("SELECT attempts FROM factory_retry_state WHERE job_id=?").bind(activeJobId).first();
-     const attempts=Number(retry?.attempts||1);
-     if(attempts<=3){
-      const secret=env.FACTORY_CRON_SECRET||env.ADMIN_PASSWORD;
-      if(secret&&context?.waitUntil){
-       const retryUrl=new URL(request.url),header=env.FACTORY_CRON_SECRET?"x-factory-cron":"x-admin-token";
-       context.waitUntil((async()=>{await new Promise(resolve=>setTimeout(resolve,5000*attempts));const rr=await fetch(retryUrl.toString(),{method:"POST",headers:{"content-type":"application/json",[header]:secret},body:"{}"});if(!rr.ok)console.log("FACTORY_503_RETRY_STATUS",rr.status)})().catch(err=>console.log("FACTORY_503_RETRY_ERROR",String(err))));
-      }
+    const message=String(e.message||e);
+    const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|MISSING_GEMINI_KEY|GEMINI_POOL_EXHAUSTED/i.test(message);
+    const temporary=/GEMINI_TEMPORARY_UNAVAILABLE/i.test(message);
+    await env.DB.prepare("UPDATE factory_jobs SET status=?,stage=?,error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(quota||temporary?"deferred":"failed",quota?"waiting_for_gemini_quota":temporary?"waiting_for_gemini_service":"failed",message.slice(0,1000),activeJobId).run();
+    if(quota||temporary){
+     let attempts=0,nextAt;
+     if(quota){
+      const states=await env.DB.prepare("SELECT blocked_until,last_error,updated_at FROM factory_provider_state WHERE provider_key LIKE 'GEMINI_%_API_KEY' AND state='exhausted'").all();
+      const dates=(states.results||[]).map(s=>s.blocked_until||retryAtFromMessage(s.last_error,6*60*60*1000)).filter(Boolean).sort();
+      nextAt=dates[0]||retryAtFromMessage(message,6*60*60*1000);
      }else{
-      await env.DB.prepare("UPDATE factory_jobs SET status='deferred',stage='waiting_for_gemini_service',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(activeJobId).run();
+      const old=await env.DB.prepare("SELECT attempts FROM factory_retry_schedule WHERE job_id=?").bind(activeJobId).first();
+      attempts=Number(old?.attempts||0)+1;
+      const delays=[60,120,300,900,1800,3600];
+      nextAt=new Date(Date.now()+delays[Math.min(attempts-1,delays.length-1)]*1000).toISOString();
      }
+     await env.DB.prepare("INSERT INTO factory_retry_schedule(job_id,attempts,next_retry_at,reason,updated_at) VALUES(?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(job_id) DO UPDATE SET attempts=excluded.attempts,next_retry_at=excluded.next_retry_at,reason=excluded.reason,updated_at=CURRENT_TIMESTAMP").bind(activeJobId,attempts,nextAt,quota?"quota":"temporary").run();
+     console.log("FACTORY_JOB_RETRY_SCHEDULED",JSON.stringify({job_id:activeJobId,reason:quota?"quota":"temporary",attempts,next_retry_at:nextAt}));
     }
    }catch(_){}
   }
