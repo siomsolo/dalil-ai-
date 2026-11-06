@@ -10,7 +10,7 @@ function relatedScore(current,candidate){
   for(const w of a)if(b.has(w))score+=2;
   return score;
 }
-function card(p){return `<a class="product-card" href="/product/${encodeURIComponent(p.slug)}"><div class="cover">${p.image_url?`<img loading="lazy" src="${esc(p.image_url)}" alt="${esc(p.title)} cover">`:'<span class="placeholder">✦</span>'}</div><div class="product-info"><div class="tags"><span class="tag">${esc(p.category||"Digital resource")}</span><span class="tag">${esc(p.language||"English")}</span></div><h3>${esc(p.title)}</h3><p>${esc((p.description||"").slice(0,115))}</p><div class="price-row"><span class="price">$ ${Number(p.price||5).toFixed(2)}</span><span class="view">View product →</span></div></div></a>`}
+function card(p){return `<a class="product-card" href="/product/${encodeURIComponent(p.slug)}"><div class="cover">${p.image_url?`<img loading="lazy" src="${esc(p.image_url)}" alt="${esc(p.title)} cover">`:'<span class="placeholder">✦</span>'}</div><div class="product-info"><div class="tags"><span class="tag annual-price-tag">ANNUAL OFFER · $5</span><span class="tag">${esc(p.category||"Digital resource")}</span><span class="tag">${esc(p.language||"English")}</span></div><h3>${esc(p.title)}</h3><p>${esc((p.description||"").slice(0,115))}</p><div class="price-row"><span class="price">$5.00</span><span class="view">View product →</span></div></div></a>`}
 export async function onRequest({params,env}){
  const slug=String(params.slug||"");
  const p=await env.DB.prepare("SELECT slug,title,description,category,language,market,occasion,keywords,price,image_url FROM products WHERE slug=? AND status='published'").bind(slug).first();
