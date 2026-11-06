@@ -41,10 +41,8 @@ export async function onRequestPost({ request, env }) {
     ).bind(slug).first();
     if (!product) return Response.json({ error: "This product is not available." }, { status: 404 });
 
-    const amount = Number(product.price);
-    if (!Number.isFinite(amount) || amount <= 0 || amount > 10000) {
-      return Response.json({ error: "The product price is invalid." }, { status: 400 });
-    }
+    // Store-wide annual offer: the server, not the browser or product record, sets the price.
+    const amount = 5.00;
 
     const token = await accessToken(env);
     const response = await fetch(PAYPAL_API + "/v2/checkout/orders", {
