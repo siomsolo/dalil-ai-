@@ -6,3 +6,5 @@ CREATE INDEX IF NOT EXISTS idx_products_market ON products(market);
 CREATE TABLE IF NOT EXISTS product_events (id TEXT PRIMARY KEY, product_slug TEXT NOT NULL, event_type TEXT NOT NULL CHECK(event_type IN ('view','click')), created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
 CREATE INDEX IF NOT EXISTS idx_product_events_slug_type ON product_events(product_slug,event_type);
 CREATE INDEX IF NOT EXISTS idx_product_events_created ON product_events(created_at);
+
+CREATE TABLE IF NOT EXISTS factory_scheduler_auth (id INTEGER PRIMARY KEY CHECK(id=1), token TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP);
