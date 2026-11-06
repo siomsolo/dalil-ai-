@@ -43,6 +43,16 @@ async function generateDraft(env,job){
  if(!keys.length)throw new Error("MISSING_GEMINI_KEY: configure at least one Gemini API key.");
  const {results:states=[]}=await env.DB.prepare("SELECT provider_key,state,blocked_until FROM factory_provider_state").all();
  const map=new Map(states.map(x=>[x.provider_key,x]));
+ // Normalize legacy rows where a quota error was recorded but the provider state remained active.
+ for(const key of keys){
+  const state=map.get(key);
+  if(state&&state.state!=="exhausted"&&quotaError(429,state.last_error||"")){
+   const blockedUntil=retryAtFromMessage(state.last_error,6*60*60*1000);
+   await env.DB.prepare("UPDATE factory_provider_state SET state='exhausted',blocked_until=?,updated_at=CURRENT_TIMESTAMP WHERE provider_key=?").bind(blockedUntil,key).run();
+   state.state="exhausted";state.blocked_until=blockedUntil;
+   console.log("FACTORY_GEMINI_QUOTA_STATE_REPAIRED",JSON.stringify({provider_key:key,blocked_until:blockedUntil}));
+  }
+ }
  const available=keys.filter(k=>{const s=map.get(k);if(!s)return true;const until=s.blocked_until?Date.parse(s.blocked_until):0;if(Number.isFinite(until)&&until>Date.now())return false;if(s.state==="active"||s.state==="unknown")return true;if(s.state==="exhausted")return true;return false});
  if(!available.length){
   const exhausted=keys.filter(k=>map.get(k)?.state==="exhausted");
