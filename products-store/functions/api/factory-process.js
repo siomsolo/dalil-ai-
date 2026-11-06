@@ -46,7 +46,7 @@ async function generateDraft(env,job){
  // Normalize legacy rows where a quota error was recorded but the provider state remained active.
  for(const key of keys){
   const state=map.get(key);
-  if(state&&state.state!=="exhausted"&&quotaError(429,state.last_error||"")){
+  if(state&&state.state!=="exhausted"&&state.last_error&&quotaError(0,state.last_error)){
    const blockedUntil=retryAtFromMessage(state.last_error,6*60*60*1000);
    await env.DB.prepare("UPDATE factory_provider_state SET state='exhausted',blocked_until=?,updated_at=CURRENT_TIMESTAMP WHERE provider_key=?").bind(blockedUntil,key).run();
    state.state="exhausted";state.blocked_until=blockedUntil;
