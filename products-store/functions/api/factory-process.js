@@ -166,7 +166,7 @@ async function processSingle(context){
   await env.DB.prepare("UPDATE factory_jobs SET status=?,stage='quality_passed',product_slug=?,actual_neurons=0,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(settings.auto_publish?"published":"review",slug,job.id).run();
   await env.DB.prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run();
   const nextCount=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
-  if(Number(nextCount?.n||0)>0){const internalSecret=env.FACTORY_CRON_SECRET||env.ADMIN_PASSWORD;if(internalSecret){const nextUrl=new URL(request.url);context.waitUntil(fetch(nextUrl.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":internalSecret},body:"{}"}).then(r=>{if(!r.ok)console.log("FACTORY_QUEUE_CHAIN_STATUS",r.status)}).catch(e=>console.log("FACTORY_QUEUE_CHAIN_ERROR",String(e))))}}
+  if(Number(nextCount?.n||0)>0){const internalSecret=env.FACTORY_CRON_SECRET||env.ADMIN_PASSWORD;if(internalSecret){const nextUrl=new URL(request.url);context.waitUntil(fetch(nextUrl.toString(),{method:"POST",headers:{"content-type":"application/json",[env.FACTORY_CRON_SECRET?"x-factory-cron":"x-admin-token"]:internalSecret},body:"{}"}).then(r=>{if(!r.ok)console.log("FACTORY_QUEUE_CHAIN_STATUS",r.status)}).catch(e=>console.log("FACTORY_QUEUE_CHAIN_ERROR",String(e))))}}
   return Response.json({ok:true,status,slug,title:data.title,wordCount,geminiKeyUsed:data._gemini_key_used||null,coverGenerated:cover.generated,coverFallback:cover.fallback,coverProvider:"Cloudflare Workers AI",coverReason:cover.reason||null});
  }catch(e){
   if(activeJobId){
