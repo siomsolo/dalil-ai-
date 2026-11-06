@@ -215,7 +215,7 @@ async function processSingle(context){
   if(activeJobId){
    try{
     const message=String(e.message||e);
-    const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|MISSING_GEMINI_KEY|GEMINI_POOL_EXHAUSTED/i.test(message);
+    const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|GEMINI_POOL_EXHAUSTED/i.test(message);
     const temporary=/GEMINI_TEMPORARY_UNAVAILABLE/i.test(message);
     await env.DB.prepare("UPDATE factory_jobs SET status=?,stage=?,error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(quota||temporary?"deferred":"failed",quota?"waiting_for_gemini_quota":temporary?"waiting_for_gemini_service":"failed",message.slice(0,1000),activeJobId).run();
     if(quota||temporary){
