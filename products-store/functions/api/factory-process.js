@@ -42,7 +42,9 @@ async function generateDraft(env,job){
  const prompt="Create a complete, genuinely useful original digital "+job.product_type+" in "+language+". Write naturally for readers in "+job.market+". Topic: "+job.opportunity_title+". Occasion: "+job.occasion+". Create 550-700 words of useful, original content, with a short introduction, 5-6 practical sections, concrete steps and examples, one actionable checklist or worksheet, and a concise conclusion. Avoid filler, repeated ideas, invented statistics, guarantees, and copyrighted brands. Return exactly one valid JSON object with string fields title, description (70-100 words), keywords (8-12 comma-separated search phrases, in "+language+"), and content (550-700 words in Markdown, entirely in "+language+").";
  const failures=[],temporaryFailures=[];
  const requestBody=JSON.stringify({systemInstruction:{parts:[{text:"You are a professional digital publishing editor. Produce original, accurate, commercially useful content in "+language+". Follow the requested JSON format exactly."}]},contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{temperature:0.35,maxOutputTokens:6000,responseMimeType:"application/json"}});
- for(const secretName of available){
+ for(let keyIndex=0;keyIndex<available.length;keyIndex++){
+  const secretName=available[keyIndex];
+  console.log("FACTORY_GEMINI_KEY_ATTEMPT",JSON.stringify({provider_key:secretName,key_position:keyIndex+1,key_count:available.length,language:job.language}));
   let response,raw,payload={},message="";
   for(let attempt=0;attempt<2;attempt++){
    try{response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent",{method:"POST",headers:{"content-type":"application/json","x-goog-api-key":env[secretName]},body:requestBody,signal:AbortSignal.timeout(45000)});}catch(fetchError){temporaryFailures.push(secretName+": request timeout/network error: "+String(fetchError?.message||fetchError));response=null;break;}
@@ -54,19 +56,20 @@ async function generateDraft(env,job){
    const waitMs=Number.isFinite(retryAfter)&&retryAfter>0?Math.min(retryAfter*1000,5000):1200;
    await new Promise(resolve=>setTimeout(resolve,waitMs));
   }
-  if(!response)continue;
+  if(!response){console.log("FACTORY_GEMINI_KEY_FAILOVER",JSON.stringify({provider_key:secretName,next_provider:available[keyIndex+1]||null,reason:"network_timeout_or_connection_error"}));continue;}
   if(!response.ok){
    if(quotaError(response.status,message)){
     await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'exhausted',?,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='exhausted',last_error=excluded.last_error,blocked_until=NULL,updated_at=CURRENT_TIMESTAMP").bind(secretName,String(message).slice(0,800)).run();
-    failures.push(secretName+": "+message);continue;
+    failures.push(secretName+": "+message);console.log("FACTORY_GEMINI_KEY_FAILOVER",JSON.stringify({provider_key:secretName,next_provider:available[keyIndex+1]||null,reason:"quota_or_rate_limit",status:response.status}));continue;
    }
    if(response.status===503||response.status===500||response.status===502||response.status===504){
     temporaryFailures.push(secretName+": HTTP "+response.status+" "+message);
+    console.log("FACTORY_GEMINI_KEY_FAILOVER",JSON.stringify({provider_key:secretName,next_provider:available[keyIndex+1]||null,reason:"temporary_server_error",status:response.status}));
     continue;
    }
    if(response.status===401||response.status===403){
     await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'invalid',?,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='invalid',last_error=excluded.last_error,updated_at=CURRENT_TIMESTAMP").bind(secretName,String(message).slice(0,800)).run();
-    failures.push(secretName+": "+message);continue;
+    failures.push(secretName+": "+message);console.log("FACTORY_GEMINI_KEY_FAILOVER",JSON.stringify({provider_key:secretName,next_provider:available[keyIndex+1]||null,reason:"invalid_key",status:response.status}));continue;
    }
    throw new Error("GEMINI_"+response.status+":"+message);
   }
