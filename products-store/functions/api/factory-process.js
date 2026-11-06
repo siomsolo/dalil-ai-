@@ -71,9 +71,21 @@ async function generateDraft(env,job){
    throw new Error("GEMINI_"+response.status+":"+message);
   }
   const generated=payload?.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("\n")||"";
-  if(!generated)throw new Error("Gemini returned an empty draft: "+JSON.stringify(payload.promptFeedback||{}));
+  if(!generated){
+   const detail=JSON.stringify(payload.promptFeedback||payload.error||{message:"empty response"});
+   temporaryFailures.push(secretName+": empty or blocked response: "+detail.slice(0,400));
+   console.log("FACTORY_GEMINI_KEY_FAILOVER",JSON.stringify({provider_key:secretName,next_provider:keys[keys.indexOf(secretName)+1]||null,reason:"empty_or_blocked_response"}));
+   continue;
+  }
+  let draft;
+  try{draft=parseDraft(generated)}catch(draftError){
+   temporaryFailures.push(secretName+": invalid or incomplete JSON draft: "+String(draftError?.message||draftError).slice(0,300));
+   console.log("FACTORY_GEMINI_KEY_FAILOVER",JSON.stringify({provider_key:secretName,next_provider:keys[keys.indexOf(secretName)+1]||null,reason:"invalid_draft"}));
+   continue;
+  }
   await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'active',NULL,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='active',last_error=NULL,blocked_until=NULL,updated_at=CURRENT_TIMESTAMP").bind(secretName).run();
-  const draft=parseDraft(generated);draft._gemini_key_used=secretName;return draft;
+  console.log("FACTORY_GEMINI_KEY_SUCCESS",JSON.stringify({provider_key:secretName}));
+  draft._gemini_key_used=secretName;return draft;
  }
  if(temporaryFailures.length)throw new Error("GEMINI_TEMPORARY_UNAVAILABLE: Gemini is temporarily overloaded (503/high demand) or unavailable. Tried other configured keys and retried 503 once per key. The job stays queued for a later retry. "+temporaryFailures.join(" | "));
  throw new Error("GEMINI_POOL_EXHAUSTED: no usable Gemini key remains. "+failures.join(" | "));
