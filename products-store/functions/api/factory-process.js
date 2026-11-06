@@ -26,7 +26,7 @@ function languageName(language){const code=languageCode(language);const names={E
 async function generateDraft(env,job){
  const code=languageCode(job.language);const secretName="GEMINI_"+code+"_API_KEY";const key=env[secretName];
  if(!key)throw new Error("MISSING_GEMINI_KEY:"+secretName);
- const model=env.GEMINI_MODEL||"gemini-2.5-flash";
+ const model=env.GEMINI_MODEL||"gemini-3.8-flash";
  const language=languageName(job.language);
  const prompt="Create a complete, genuinely useful original digital "+job.product_type+" in "+language+". Write naturally for readers in "+job.market+". Topic: "+job.opportunity_title+". Occasion: "+job.occasion+". Create 550-700 words of useful, original content, with a short introduction, 5-6 practical sections, concrete steps and examples, one actionable checklist or worksheet, and a concise conclusion. Avoid filler, repeated ideas, invented statistics, guarantees, and copyrighted brands. Return exactly one valid JSON object with string fields title, description (70-100 words), keywords (8-12 comma-separated search phrases, in "+language+"), and content (550-700 words in Markdown, entirely in "+language+").";
  const response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent",{method:"POST",headers:{"content-type":"application/json","x-goog-api-key":key},body:JSON.stringify({systemInstruction:{parts:[{text:"You are a professional digital publishing editor. Produce original, accurate, commercially useful content in "+language+". Follow the requested JSON format exactly."}]},contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{temperature:0.35,maxOutputTokens:6000,responseMimeType:"application/json"}})});
