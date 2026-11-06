@@ -1,6 +1,11 @@
-function auth(request,env){return !!env.FACTORY_CRON_SECRET&&(request.headers.get("x-factory-cron")||"")===env.FACTORY_CRON_SECRET}
+async function auth(request,env){
+ const supplied=request.headers.get("x-factory-cron")||"";
+ if(!supplied)return false;
+ const row=await env.DB.prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();
+ return !!row?.token&&supplied===row.token;
+}
 export async function onRequestPost({request,env}){
- if(!auth(request,env))return Response.json({error:"Cron authentication failed."},{status:401});
+ if(!await auth(request,env))return Response.json({error:"Cron authentication failed."},{status:401});
  try{
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS factory_retry_schedule (job_id TEXT PRIMARY KEY,attempts INTEGER NOT NULL DEFAULT 0,next_retry_at TEXT NOT NULL,reason TEXT,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)").run();
   await env.DB.prepare("CREATE TABLE IF NOT EXISTS factory_queue_lock (id INTEGER PRIMARY KEY CHECK(id=1),lock_token TEXT,lock_until TEXT)").run();
