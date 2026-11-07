@@ -22,6 +22,13 @@ export async function onRequestPost({request,env}){
   await env.DB.prepare("UPDATE factory_jobs SET status='queued',stage='queued',error='Recovered automatically after a stale running lease.',updated_at=CURRENT_TIMESTAMP WHERE status='running' AND updated_at<datetime('now','-10 minutes')").run();
   const schedulerAuth=await env.DB.prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();
   if(!schedulerAuth?.token)return Response.json({error:"Factory scheduler token is missing from D1."},{status:503});
+  // Refresh curated and live trend opportunities before refilling the rolling queue.
+  // This makes production replenishment ongoing instead of relying on a one-time manual seed.
+  const opportunitiesUrl=new URL(request.url);opportunitiesUrl.pathname="/api/factory-opportunities";opportunitiesUrl.search="";
+  const opportunitiesResponse=await fetch(opportunitiesUrl.toString(),{method:"GET",headers:{"x-factory-cron":schedulerAuth.token}});
+  const opportunitiesBody=await opportunitiesResponse.json().catch(()=>({}));
+  if(!opportunitiesResponse.ok){console.log("FACTORY_CRON_OPPORTUNITY_ERROR",JSON.stringify({status:opportunitiesResponse.status,body:opportunitiesBody}));return Response.json({error:"Factory opportunity refresh failed.",opportunities:opportunitiesBody},{status:502});}
+  console.log("FACTORY_CRON_OPPORTUNITIES",JSON.stringify({count:opportunitiesBody.opportunities?.length||0,ingested:opportunitiesBody.ingested||0}));
   // Refill the rolling queue on every five-minute scheduler tick. Existing opportunity/language
   // pairs are idempotent, so this never recreates jobs that were already attempted.
   const planUrl=new URL(request.url);planUrl.pathname="/api/factory-run";planUrl.search="";
