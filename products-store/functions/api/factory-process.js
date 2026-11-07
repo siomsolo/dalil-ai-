@@ -38,8 +38,9 @@ function retryAtFromMessage(message,fallbackMs=6*60*60*1000){
 }
 async function generateDraft(env,job){
  await ensureFactoryTables(env);
- const preferred="GEMINI_"+languageCode(job.language)+"_API_KEY";
- const keys=[preferred,"GEMINI_EN_API_KEY","GEMINI_FR_API_KEY","GEMINI_ES_API_KEY"].filter((k,i,a)=>a.indexOf(k)===i&&!!env[k]);
+ // Consume the three free-tier projects in a strict, predictable order.
+ // The selected language is carried in the prompt, so any configured key can serve any language.
+ const keys=["GEMINI_EN_API_KEY","GEMINI_FR_API_KEY","GEMINI_ES_API_KEY"].filter(k=>!!env[k]);
  if(!keys.length)throw new Error("MISSING_GEMINI_KEY: configure at least one Gemini API key.");
  const {results:states=[]}=await env.DB.prepare("SELECT provider_key,state,blocked_until FROM factory_provider_state").all();
  const map=new Map(states.map(x=>[x.provider_key,x]));
