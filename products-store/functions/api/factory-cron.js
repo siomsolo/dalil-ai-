@@ -20,13 +20,20 @@ export async function onRequestPost({request,env}){
    await env.DB.prepare("DELETE FROM factory_retry_schedule WHERE job_id=?").bind(item.job_id).run();
   }
   await env.DB.prepare("UPDATE factory_jobs SET status='queued',stage='queued',error='Recovered automatically after a stale running lease.',updated_at=CURRENT_TIMESTAMP WHERE status='running' AND updated_at<datetime('now','-10 minutes')").run();
+  const schedulerAuth=await env.DB.prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();
+  if(!schedulerAuth?.token)return Response.json({error:"Factory scheduler token is missing from D1."},{status:503});
+  // Refill the rolling queue on every five-minute scheduler tick. Existing opportunity/language
+  // pairs are idempotent, so this never recreates jobs that were already attempted.
+  const planUrl=new URL(request.url);planUrl.pathname="/api/factory-run";planUrl.search="";
+  const planResponse=await fetch(planUrl.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":schedulerAuth.token},body:"{}"});
+  const planBody=await planResponse.json().catch(()=>({}));
+  if(!planResponse.ok){console.log("FACTORY_CRON_PLANNER_ERROR",JSON.stringify({status:planResponse.status,body:planBody}));return Response.json({error:"Factory queue planner failed.",planner:planBody},{status:502});}
+  console.log("FACTORY_CRON_PLAN",JSON.stringify(planBody));
   const queued=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
   const lock=await env.DB.prepare("SELECT lock_token,lock_until FROM factory_queue_lock WHERE id=1").first();
   const lockUntil=lock?.lock_until?Date.parse(String(lock.lock_until).replace(" ","T")+"Z"):0;
   if(Number(queued?.n||0)===0)return Response.json({ok:true,released,queued:0,message:"No due jobs."});
   if(lock?.lock_token&&lockUntil>Date.now())return Response.json({ok:true,released,queued:Number(queued.n),busy:true,message:"A production task still owns the queue lease."});
-  const schedulerAuth=await env.DB.prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();
-  if(!schedulerAuth?.token)return Response.json({error:"Factory scheduler token is missing from D1."},{status:503});
   const url=new URL(request.url);url.pathname="/api/factory-process";url.search="";
   const result=await fetch(url.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":schedulerAuth.token},body:"{}"});
   const body=await result.json().catch(()=>({}));
