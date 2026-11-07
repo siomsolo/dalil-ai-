@@ -197,14 +197,8 @@ async function processSingle(context){
    await env.DB.prepare("UPDATE factory_jobs SET status='queued',stage='queued',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE status='deferred' AND id IN (SELECT job_id FROM factory_retry_schedule WHERE next_retry_at<=CURRENT_TIMESTAMP)").run();
    await env.DB.prepare("DELETE FROM factory_retry_schedule WHERE next_retry_at<=CURRENT_TIMESTAMP").run();
   }
-  // Enforce the daily publication cap at the processing boundary, not only in the planner.
-  // Count actual products, not job creation dates: old queued jobs may be completed today.
-  const today=await env.DB.prepare("SELECT COUNT(*) AS n FROM products WHERE date(created_at)=date('now') AND status IN ('published','draft')").first();
-  const dailyCap=Math.max(1,Math.min(50,Number(settings.daily_product_cap)||1));
-  if(Number(today?.n||0)>=dailyCap){
-   const pending=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
-   return Response.json({ok:true,empty:true,dailyLimitReached:true,pending:Number(pending?.n||0),dailyCap,message:"Daily product cap reached. Remaining jobs stay queued for the next UTC day."});
-  }
+  // No daily product cap: process queued jobs sequentially until the queue is empty
+  // or every configured Gemini key reports exhausted quota.
   const body=await request.clone().json().catch(()=>({}));
   const requestedLanguage=body.language?String(body.language):null;
   const job=await env.DB.prepare("SELECT j.*,o.title opportunity_title FROM factory_jobs j JOIN factory_opportunities o ON o.id=j.opportunity_id WHERE j.status='queued' AND (? IS NULL OR upper(substr(j.language,1,2))=upper(substr(?,1,2))) ORDER BY o.opportunity_score DESC,j.created_at LIMIT 1").bind(requestedLanguage,requestedLanguage).first();
