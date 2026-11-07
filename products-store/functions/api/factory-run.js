@@ -16,7 +16,7 @@ export async function onRequestPost({request,env}){
   // Reserve capacity for every unfinished job, including jobs carried over from yesterday.
   // Count all jobs created today as well, so failures cannot trigger an unlimited retry loop.
   const usage=await env.DB.prepare(
-   "SELECT COUNT(DISTINCT id) AS n FROM factory_jobs WHERE created_at>=datetime('now','start of day') OR status IN ('queued','running','deferred')"
+   "SELECT (SELECT COUNT(*) FROM products WHERE date(created_at)=date('now') AND status IN ('published','draft')) + (SELECT COUNT(*) FROM factory_jobs WHERE status IN ('queued','running','deferred')) AS n"
   ).first();
   const reserved=Number(usage?.n||0);
   const dailyCap=Math.max(1,Math.min(50,Number(settings.daily_product_cap)||1));
