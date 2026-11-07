@@ -22,7 +22,7 @@ async function runPersistentQueue(resume=false){
   const alreadyRunning=/Another production task is already running/i.test(e.message);
   if(alreadyRunning)msg("There is already a product being generated in the background. The queue is sequential; this page will show its progress automatically. Do not start another task.",false);
   else if(temporary)msg("Gemini is temporarily unavailable (503/high demand). The job is saved, and the Cloudflare scheduler checks the queue every 5 minutes and retries when its backoff time is due. This error does not by itself prove that the free quota is exhausted. Do not press Start production repeatedly; check the factory status and provider cooldowns.",true);
-  else msg((quota?"AI quota exhausted. The queue is saved. Has the free quota renewed? Press “Resume after quota renewal” after it renews. ":"Queue paused safely: ")+e.message,true);
+  else msg((quota?"All Gemini free quotas are currently exhausted. The queue is saved, and the Cloudflare scheduler checks every 5 minutes and automatically resumes when a key quota resets. You do not need to press Resume. ":"Queue paused safely: ")+e.message,true);
   try{await refresh()}catch(_){}
  }finally{
   factoryRunning=false;button.disabled=false;if(resumeButton)resumeButton.disabled=false;
