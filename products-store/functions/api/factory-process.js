@@ -191,6 +191,19 @@ async function processSingle(context){
  try{
   const settings=await env.DB.prepare("SELECT * FROM factory_settings WHERE id=1").first();
   if(!settings?.enabled)return Response.json({error:"Factory is disabled."},{status:409});
+  // Requeue only jobs whose scheduled retry time has arrived.
+  const due=await env.DB.prepare("SELECT job_id FROM factory_retry_schedule WHERE next_retry_at<=CURRENT_TIMESTAMP").all();
+  if(due.results?.length){
+   await env.DB.prepare("UPDATE factory_jobs SET status='queued',stage='queued',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE status='deferred' AND id IN (SELECT job_id FROM factory_retry_schedule WHERE next_retry_at<=CURRENT_TIMESTAMP)").run();
+   await env.DB.prepare("DELETE FROM factory_retry_schedule WHERE next_retry_at<=CURRENT_TIMESTAMP").run();
+  }
+  // Enforce the daily publication cap at the processing boundary, not only in the planner.
+  const today=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE date(created_at)=date('now') AND status IN ('published','review')").first();
+  const dailyCap=Math.max(1,Math.min(50,Number(settings.daily_product_cap)||1));
+  if(Number(today?.n||0)>=dailyCap){
+   const pending=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
+   return Response.json({ok:true,empty:true,dailyLimitReached:true,pending:Number(pending?.n||0),dailyCap,message:"Daily product cap reached. Remaining jobs stay queued for the next UTC day."});
+  }
   const body=await request.clone().json().catch(()=>({}));
   const requestedLanguage=body.language?String(body.language):null;
   const job=await env.DB.prepare("SELECT j.*,o.title opportunity_title FROM factory_jobs j JOIN factory_opportunities o ON o.id=j.opportunity_id WHERE j.status='queued' AND (? IS NULL OR upper(substr(j.language,1,2))=upper(substr(?,1,2))) ORDER BY o.opportunity_score DESC,j.created_at LIMIT 1").bind(requestedLanguage,requestedLanguage).first();
