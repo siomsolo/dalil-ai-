@@ -29,7 +29,14 @@ export async function onRequestPost({request,env}){
   const planBody=await planResponse.json().catch(()=>({}));
   if(!planResponse.ok){console.log("FACTORY_CRON_PLANNER_ERROR",JSON.stringify({status:planResponse.status,body:planBody}));return Response.json({error:"Factory queue planner failed.",planner:planBody},{status:502});}
   console.log("FACTORY_CRON_PLAN",JSON.stringify(planBody));
+  // Do not create repeated failed attempts while all three Gemini free-tier keys are
+  // in their quota cooldown. The cron keeps checking; the first reset key is tested
+  // automatically as soon as its blocked_until time passes.
+  const quotaState=await env.DB.prepare("SELECT COUNT(*) AS n,MIN(blocked_until) AS next_reset FROM factory_provider_state WHERE provider_key IN ('GEMINI_EN_API_KEY','GEMINI_FR_API_KEY','GEMINI_ES_API_KEY') AND state='exhausted' AND blocked_until IS NOT NULL AND datetime(blocked_until)>CURRENT_TIMESTAMP").first();
   const queued=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
+  if(Number(quotaState?.n||0)>=3){
+   return Response.json({ok:true,paused:true,reason:"all_gemini_quotas_exhausted",next_retry_at:quotaState.next_reset,queued:Number(queued?.n||0),message:"All Gemini free quotas are exhausted. The scheduler will automatically retry at the next quota reset."});
+  }
   const lock=await env.DB.prepare("SELECT lock_token,lock_until FROM factory_queue_lock WHERE id=1").first();
   const lockUntil=lock?.lock_until?Date.parse(String(lock.lock_until).replace(" ","T")+"Z"):0;
   if(Number(queued?.n||0)===0)return Response.json({ok:true,released,queued:0,message:"No due jobs."});
