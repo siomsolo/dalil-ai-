@@ -13,21 +13,21 @@ export async function onRequestPost({request,env}){
    .map(value=>String(value||"").trim()).filter(Boolean))];
   if(!languages.length)return Response.json({error:"Select at least one production language."},{status:409});
 
-  // Reserve capacity for every unfinished job, including jobs carried over from yesterday.
-  // Count all jobs created today as well, so failures cannot trigger an unlimited retry loop.
+  // Keep a deep rolling queue instead of imposing a daily product limit.
+  // The queue target bounds planning while production continues until provider quotas are exhausted.
   const usage=await env.DB.prepare(
-   "SELECT (SELECT COUNT(*) FROM products WHERE date(created_at)=date('now') AND status IN ('published','draft')) + (SELECT COUNT(*) FROM factory_jobs WHERE status IN ('queued','running','deferred')) AS n"
+   "SELECT COUNT(*) AS n FROM factory_jobs WHERE status IN ('queued','running','deferred')"
   ).first();
   const reserved=Number(usage?.n||0);
-  const dailyCap=Math.max(1,Math.min(50,Number(settings.daily_product_cap)||1));
-  const remaining=Math.max(0,dailyCap-reserved);
+  const queueTarget=500;
+  const remaining=Math.max(0,queueTarget-reserved);
   const pendingRow=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
   const pendingBefore=Number(pendingRow?.n||0);
 
   if(remaining===0){
    return Response.json({
-    ok:true,queued:0,pending:pendingBefore,skipped:0,dailyCap,reserved,remaining:0,dailyLimitReached:true,
-    message:"Daily product cap reached or already reserved by queued jobs. The scheduler will plan again after capacity becomes available."
+    ok:true,queued:0,pending:pendingBefore,skipped:0,queueTarget,reserved,remaining:0,queueTargetReached:true,
+    message:"Rolling queue target is already filled. The scheduler will replenish it as jobs complete."
    });
   }
 
@@ -60,10 +60,10 @@ export async function onRequestPost({request,env}){
   const pending=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
   const totalReserved=reserved+queued;
   return Response.json({
-   ok:true,queued,pending:Number(pending?.n||0),skipped,dailyCap,reserved:totalReserved,
-   remaining:Math.max(0,dailyCap-totalReserved),dailyLimitReached:queued===remaining,
+   ok:true,queued,pending:Number(pending?.n||0),skipped,queueTarget,reserved:totalReserved,
+   remaining:Math.max(0,queueTarget-totalReserved),queueTargetReached:queued===remaining,
    message:queued
-    ?"Queued "+queued+" new product job(s) within the daily cap. Existing opportunity/language pairs are not recreated."
+    ?"Queued "+queued+" new product job(s) in the rolling queue. Existing opportunity/language pairs are not recreated."
     :"No unprocessed opportunity/language pairs are available. Existing queued jobs can still be processed."
   });
  }catch(error){
