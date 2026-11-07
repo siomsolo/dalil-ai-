@@ -1,10 +1,16 @@
-function auth(request,env){
- return (!!env.ADMIN_PASSWORD&&(request.headers.get("x-admin-token")||"")===env.ADMIN_PASSWORD)||
-  (!!env.FACTORY_CRON_SECRET&&(request.headers.get("x-factory-cron")||"")===env.FACTORY_CRON_SECRET);
+async function auth(request,env){
+ const supplied=request.headers.get("x-factory-cron")||"";
+ if((!!env.ADMIN_PASSWORD&&(request.headers.get("x-admin-token")||"")===env.ADMIN_PASSWORD)||
+  (!!env.FACTORY_CRON_SECRET&&supplied===env.FACTORY_CRON_SECRET))return true;
+ if(!supplied)return false;
+ try{
+  const row=await env.DB.prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();
+  return !!row?.token&&supplied===row.token;
+ }catch(_){return false}
 }
 
 export async function onRequestPost({request,env}){
- if(!auth(request,env))return Response.json({error:"Admin authentication failed."},{status:401});
+ if(!await auth(request,env))return Response.json({error:"Admin authentication failed."},{status:401});
  try{
   const settings=await env.DB.prepare("SELECT * FROM factory_settings WHERE id=1").first();
   if(!settings?.enabled)return Response.json({error:"Enable the factory first in its settings."},{status:409});
