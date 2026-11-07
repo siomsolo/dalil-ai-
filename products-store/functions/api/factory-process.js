@@ -198,7 +198,8 @@ async function processSingle(context){
    await env.DB.prepare("DELETE FROM factory_retry_schedule WHERE next_retry_at<=CURRENT_TIMESTAMP").run();
   }
   // Enforce the daily publication cap at the processing boundary, not only in the planner.
-  const today=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE date(created_at)=date('now') AND status IN ('published','review')").first();
+  // Count actual products, not job creation dates: old queued jobs may be completed today.
+  const today=await env.DB.prepare("SELECT COUNT(*) AS n FROM products WHERE date(created_at)=date('now') AND status IN ('published','draft')").first();
   const dailyCap=Math.max(1,Math.min(50,Number(settings.daily_product_cap)||1));
   if(Number(today?.n||0)>=dailyCap){
    const pending=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
