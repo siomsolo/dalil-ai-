@@ -40,20 +40,25 @@ function retryAtFromMessage(message,fallbackMs=6*60*60*1000){
 async function generateCloudflareTextDraft(env,job,language,prompt){
  if(!env.AI||typeof env.AI.run!=="function")throw new Error("CLOUDFLARE_AI_UNAVAILABLE: Workers AI binding is not configured.");
  const model=env.FACTORY_TEXT_MODEL||"@cf/google/gemma-4-26b-a4b-it";
- const response=await env.AI.run(model,{messages:[
-  {role:"system",content:"You are a professional digital publishing editor. Create useful, original, accurate digital products. Follow JSON output instructions exactly."},
-  {role:"user",content:prompt}
- ],temperature:0.35,max_tokens:6000,chat_template_kwargs:{enable_thinking:false}});
- const raw=response?.response||response?.choices?.[0]?.message?.content||response?.output_text||"";
- const draft=parseDraft(raw);
+ const system="Return ONLY one syntactically valid JSON object. No Markdown fences, no preamble, no commentary. Use exactly four string properties: title, description, keywords, content. Escape all quotation marks and newlines correctly inside JSON strings. The content value must be 500-650 words of useful Markdown.";
+ const run=async(userPrompt)=>await env.AI.run(model,{messages:[{role:"system",content:system},{role:"user",content:userPrompt}],temperature:0.2,max_tokens:7000,chat_template_kwargs:{enable_thinking:false},response_format:{type:"json_object"}});
+ const extract=(r)=>r?.response??r?.choices?.[0]?.message?.content??r?.output_text??r?.result?.response??r?.result?.output_text??r;
+ let response=await run(prompt);
+ let raw=extract(response),draft;
+ try{draft=parseDraft(raw)}catch(firstError){
+  console.log("FACTORY_CLOUDFLARE_JSON_REPAIR",JSON.stringify({model,error:String(firstError?.message||firstError),sample:String(typeof raw==="string"?raw:JSON.stringify(raw)).slice(0,900)}));
+  const sample=String(typeof raw==="string"?raw:JSON.stringify(raw)).slice(0,14000);
+  response=await run("Convert the following attempted product draft into exactly one valid JSON object with string fields title, description, keywords, content. Preserve the useful content, repair all JSON syntax, remove any text outside the JSON object, and ensure content is at least 500 words in "+language+". Return JSON only.\n\nDRAFT TO REPAIR:\n"+sample);
+  raw=extract(response);
+  try{draft=parseDraft(raw)}catch(secondError){throw new Error("CLOUDFLARE_AI_INVALID_JSON_AFTER_REPAIR: "+String(secondError?.message||secondError)+"; response="+String(typeof raw==="string"?raw:JSON.stringify(raw)).slice(0,500))}
+ }
  const words=String(draft.content||"").trim().split(/\\s+/).filter(Boolean).length;
- if(!draft.title||!draft.description||words<500)throw new Error("CLOUDFLARE_AI_INCOMPLETE: fallback model returned an incomplete product.");
+ if(!draft.title||!draft.description||words<500)throw new Error("CLOUDFLARE_AI_INCOMPLETE: fallback model returned an incomplete product ("+words+" words).");
  draft._gemini_key_used="CLOUDFLARE_WORKERS_AI:"+model;
  await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES('CLOUDFLARE_WORKERS_AI_TEXT','active',NULL,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='active',last_error=NULL,blocked_until=NULL,updated_at=CURRENT_TIMESTAMP").run();
  console.log("FACTORY_TEXT_FALLBACK_SUCCESS",JSON.stringify({provider:"CLOUDFLARE_WORKERS_AI",model,language:job.language,words}));
  return draft;
 }
-
 async function generateDraft(env,job){
  await ensureFactoryTables(env);
  // Consume the three free-tier projects in a strict, predictable order.
