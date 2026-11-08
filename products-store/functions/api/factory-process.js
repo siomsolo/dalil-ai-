@@ -52,7 +52,7 @@ async function generateCloudflareTextDraft(env,job,language,prompt){
   raw=extract(response);
   try{draft=parseDraft(raw)}catch(secondError){throw new Error("CLOUDFLARE_AI_INVALID_JSON_AFTER_REPAIR: "+String(secondError?.message||secondError)+"; response="+String(typeof raw==="string"?raw:JSON.stringify(raw)).slice(0,500))}
  }
- const words=String(draft.content||"").trim().split(/\\s+/).filter(Boolean).length;
+ const words=String(draft.content||"").trim().split(/\s+/).filter(Boolean).length;
  if(!draft.title||!draft.description||words<500)throw new Error("CLOUDFLARE_AI_INCOMPLETE: fallback model returned an incomplete product ("+words+" words).");
  draft._gemini_key_used="CLOUDFLARE_WORKERS_AI:"+model;
  await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES('CLOUDFLARE_WORKERS_AI_TEXT','active',NULL,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='active',last_error=NULL,blocked_until=NULL,updated_at=CURRENT_TIMESTAMP").run();
