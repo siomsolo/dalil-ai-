@@ -41,8 +41,11 @@ export async function onRequestPost({request,env}){
   // automatically as soon as its blocked_until time passes.
   const quotaState=await env.DB.prepare("SELECT COUNT(*) AS n,MIN(blocked_until) AS next_reset FROM factory_provider_state WHERE provider_key IN ('GEMINI_EN_API_KEY','GEMINI_FR_API_KEY','GEMINI_ES_API_KEY') AND state='exhausted' AND blocked_until IS NOT NULL AND datetime(blocked_until)>CURRENT_TIMESTAMP").first();
   const queued=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
-  if(Number(quotaState?.n||0)>=3){
-   return Response.json({ok:true,paused:true,reason:"all_gemini_quotas_exhausted",next_retry_at:quotaState.next_reset,queued:Number(queued?.n||0),message:"All Gemini free quotas are exhausted. The scheduler will automatically retry at the next quota reset."});
+  if(Number(quotaState?.n||0)>=3&&!env.AI){
+   return Response.json({ok:true,paused:true,reason:"all_gemini_quotas_exhausted_no_fallback",next_retry_at:quotaState.next_reset,queued:Number(queued?.n||0),message:"All Gemini free quotas are exhausted and Workers AI fallback is not bound. The scheduler will retry after quota reset."});
+  }
+  if(Number(quotaState?.n||0)>=3&&env.AI){
+   console.log("FACTORY_CRON_USING_WORKERS_AI_FALLBACK",JSON.stringify({next_gemini_reset:quotaState.next_reset,queued:Number(queued?.n||0)}));
   }
   const lock=await env.DB.prepare("SELECT lock_token,lock_until FROM factory_queue_lock WHERE id=1").first();
   const lockUntil=lock?.lock_until?Date.parse(String(lock.lock_until).replace(" ","T")+"Z"):0;
