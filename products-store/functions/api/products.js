@@ -35,7 +35,7 @@ export async function onRequestPost(context){
     if(file.size>40*1024*1024)return Response.json({error:"File exceeds 40 MB."},{status:413});
     const title=String(form.get("title")||"").trim(),description=String(form.get("description")||"").trim();
     if(!title||!description)return Response.json({error:"Title and description are required."},{status:400});
-    let slug=String(form.get("slug")||title).toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,90);
+    let slug=String(form.get("slug")||title).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,90);
     if(!slug)slug=crypto.randomUUID();
     const id=crypto.randomUUID();
     const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"-").slice(-100);
