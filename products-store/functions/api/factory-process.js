@@ -53,7 +53,8 @@ async function generateCloudflareTextDraft(env,job,language,prompt){
  console.log("FACTORY_TEXT_FALLBACK_SUCCESS",JSON.stringify({provider:"CLOUDFLARE_WORKERS_AI",model,language:job.language,words}));
  return draft;
 }
-\nasync function generateDraft(env,job){
+
+async function generateDraft(env,job){
  await ensureFactoryTables(env);
  // Consume the three free-tier projects in a strict, predictable order.
  // The selected language is carried in the prompt, so any configured key can serve any language.
