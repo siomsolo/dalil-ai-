@@ -43,7 +43,7 @@ async function generateCloudflareTextDraft(env,job,language,prompt){
  const response=await env.AI.run(model,{messages:[
   {role:"system",content:"You are a professional digital publishing editor. Create useful, original, accurate digital products. Follow JSON output instructions exactly."},
   {role:"user",content:prompt}
- ],temperature:0.35,max_completion_tokens:6000});
+ ],temperature:0.35,max_tokens:6000,chat_template_kwargs:{enable_thinking:false}});
  const raw=response?.response||response?.choices?.[0]?.message?.content||response?.output_text||"";
  const draft=parseDraft(raw);
  const words=String(draft.content||"").trim().split(/\\s+/).filter(Boolean).length;
@@ -135,7 +135,6 @@ async function generateCloudflareTextDraft(env,job,language,prompt){
   console.log("FACTORY_GEMINI_KEY_SUCCESS",JSON.stringify({provider_key:secretName}));
   draft._gemini_key_used=secretName;return draft;
  }
- if(temporaryFailures.length)throw new Error("GEMINI_TEMPORARY_UNAVAILABLE: Gemini is temporarily overloaded (503/high demand) or unavailable. Tried other configured keys and retried 503 once per key. The job stays queued for a later retry. "+temporaryFailures.join(" | "));
  console.log("FACTORY_GEMINI_POOL_FALLBACK",JSON.stringify({failedKeys:failures.length,temporaryFailures:temporaryFailures.length}));
  try{
   return await generateCloudflareTextDraft(env,job,language,prompt);
@@ -146,6 +145,7 @@ async function generateCloudflareTextDraft(env,job,language,prompt){
    await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES('CLOUDFLARE_WORKERS_AI_TEXT','exhausted',?,?,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='exhausted',last_error=excluded.last_error,blocked_until=excluded.blocked_until,updated_at=CURRENT_TIMESTAMP").bind(fallbackMessage.slice(0,800),next.toISOString()).run();
    throw new Error("CLOUDFLARE_AI_QUOTA_EXHAUSTED: Workers AI daily free allocation is exhausted; retry after 00:00 UTC. "+fallbackMessage);
   }
+  if(/temporarily|overload|high demand|503|timeout|network|capacity/i.test(fallbackMessage))throw new Error("GEMINI_TEMPORARY_UNAVAILABLE: both Gemini and Cloudflare Workers AI are temporarily unavailable. "+fallbackMessage);
   throw new Error("GEMINI_AND_CLOUDFLARE_FALLBACK_FAILED: Gemini keys unavailable; Cloudflare Workers AI fallback failed: "+fallbackMessage);
  }
 }
