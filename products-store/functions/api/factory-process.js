@@ -36,7 +36,24 @@ function retryAtFromMessage(message,fallbackMs=6*60*60*1000){
  const ms=(Number(m[1]||0)*3600+Number(m[2]||0)*60+Number(m[3]||0))*1000;
  return new Date(Date.now()+Math.max(60000,ms||fallbackMs)).toISOString();
 }
-async function generateDraft(env,job){
+
+async function generateCloudflareTextDraft(env,job,language,prompt){
+ if(!env.AI||typeof env.AI.run!=="function")throw new Error("CLOUDFLARE_AI_UNAVAILABLE: Workers AI binding is not configured.");
+ const model=env.FACTORY_TEXT_MODEL||"@cf/google/gemma-4-26b-a4b-it";
+ const response=await env.AI.run(model,{messages:[
+  {role:"system",content:"You are a professional digital publishing editor. Create useful, original, accurate digital products. Follow JSON output instructions exactly."},
+  {role:"user",content:prompt}
+ ],temperature:0.35,max_completion_tokens:6000});
+ const raw=response?.response||response?.choices?.[0]?.message?.content||response?.output_text||"";
+ const draft=parseDraft(raw);
+ const words=String(draft.content||"").trim().split(/\\s+/).filter(Boolean).length;
+ if(!draft.title||!draft.description||words<500)throw new Error("CLOUDFLARE_AI_INCOMPLETE: fallback model returned an incomplete product.");
+ draft._gemini_key_used="CLOUDFLARE_WORKERS_AI:"+model;
+ await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES('CLOUDFLARE_WORKERS_AI_TEXT','active',NULL,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='active',last_error=NULL,blocked_until=NULL,updated_at=CURRENT_TIMESTAMP").run();
+ console.log("FACTORY_TEXT_FALLBACK_SUCCESS",JSON.stringify({provider:"CLOUDFLARE_WORKERS_AI",model,language:job.language,words}));
+ return draft;
+}
+\nasync function generateDraft(env,job){
  await ensureFactoryTables(env);
  // Consume the three free-tier projects in a strict, predictable order.
  // The selected language is carried in the prompt, so any configured key can serve any language.
@@ -56,10 +73,8 @@ async function generateDraft(env,job){
  }
  const available=keys.filter(k=>{const s=map.get(k);if(!s)return true;const until=s.blocked_until?Date.parse(s.blocked_until):0;if(Number.isFinite(until)&&until>Date.now())return false;if(s.state==="active"||s.state==="unknown")return true;if(s.state==="exhausted")return true;return false});
  if(!available.length){
-  const exhausted=keys.filter(k=>map.get(k)?.state==="exhausted");
-  if(!exhausted.length)throw new Error("GEMINI_ALL_KEYS_INVALID: all configured Gemini keys are invalid or unavailable. Check the key configuration in Cloudflare.");
-  const waits=exhausted.map(k=>{const s=map.get(k);return s.blocked_until||retryAtFromMessage(s.last_error,6*60*60*1000)}).filter(Boolean).sort();
-  throw new Error("GEMINI_POOL_EXHAUSTED: all configured Gemini keys are temporarily quota-limited. Earliest retry: "+(waits[0]||new Date(Date.now()+6*60*60*1000).toISOString()));
+  console.log("FACTORY_GEMINI_UNAVAILABLE_USING_CLOUDFLARE_AI",JSON.stringify({configuredKeys:keys.length,states:keys.map(k=>({key:k,state:map.get(k)?.state||"unknown"}))}));
+  return await generateCloudflareTextDraft(env,job,languageName(job.language), "Create a complete, genuinely useful original digital "+job.product_type+" in "+languageName(job.language)+". Write naturally for readers in "+job.market+". Topic: "+job.opportunity_title+". Occasion: "+job.occasion+". Create 550-700 words with an introduction, 5-6 practical sections, concrete steps and examples, an actionable checklist or worksheet, and a concise conclusion. Return exactly one valid JSON object with string fields title, description (70-100 words), keywords (8-12 comma-separated phrases), and content (550-700 words in Markdown, entirely in "+languageName(job.language)+"."));
  }
  const model=env.GEMINI_MODEL||"gemini-3.8-flash",language=languageName(job.language);
  const prompt="Create a complete, genuinely useful original digital "+job.product_type+" in "+language+". Write naturally for readers in "+job.market+". Topic: "+job.opportunity_title+". Occasion: "+job.occasion+". Create 550-700 words of useful, original content, with a short introduction, 5-6 practical sections, concrete steps and examples, one actionable checklist or worksheet, and a concise conclusion. Avoid filler, repeated ideas, invented statistics, guarantees, and copyrighted brands. Return exactly one valid JSON object with string fields title, description (70-100 words), keywords (8-12 comma-separated search phrases, in "+language+"), and content (550-700 words in Markdown, entirely in "+language+").";
@@ -91,6 +106,12 @@ async function generateDraft(env,job){
     console.log("FACTORY_GEMINI_KEY_FAILOVER",JSON.stringify({provider_key:secretName,next_provider:available[keyIndex+1]||null,reason:"temporary_server_error",status:response.status}));
     continue;
    }
+   if(response.status===400&&/user location is not supported|location.*not supported/i.test(message)){
+    await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'invalid',?,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='invalid',last_error=excluded.last_error,blocked_until=NULL,updated_at=CURRENT_TIMESTAMP").bind(secretName,String(message).slice(0,800)).run();
+    failures.push(secretName+": unsupported request origin: "+message);
+    console.log("FACTORY_GEMINI_KEY_FAILOVER",JSON.stringify({provider_key:secretName,next_provider:available[keyIndex+1]||"CLOUDFLARE_WORKERS_AI",reason:"unsupported_request_location",status:400}));
+    continue;
+   }
    if(response.status===401||response.status===403){
     await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'invalid',?,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='invalid',last_error=excluded.last_error,updated_at=CURRENT_TIMESTAMP").bind(secretName,String(message).slice(0,800)).run();
     failures.push(secretName+": "+message);console.log("FACTORY_GEMINI_KEY_FAILOVER",JSON.stringify({provider_key:secretName,next_provider:available[keyIndex+1]||null,reason:"invalid_key",status:response.status}));continue;
@@ -115,7 +136,18 @@ async function generateDraft(env,job){
   draft._gemini_key_used=secretName;return draft;
  }
  if(temporaryFailures.length)throw new Error("GEMINI_TEMPORARY_UNAVAILABLE: Gemini is temporarily overloaded (503/high demand) or unavailable. Tried other configured keys and retried 503 once per key. The job stays queued for a later retry. "+temporaryFailures.join(" | "));
- throw new Error("GEMINI_POOL_EXHAUSTED: no usable Gemini key remains. "+failures.join(" | "));
+ console.log("FACTORY_GEMINI_POOL_FALLBACK",JSON.stringify({failedKeys:failures.length,temporaryFailures:temporaryFailures.length}));
+ try{
+  return await generateCloudflareTextDraft(env,job,language,prompt);
+ }catch(fallbackError){
+  const fallbackMessage=String(fallbackError?.message||fallbackError);
+  if(/quota|rate.?limit|neuron|daily allocation|resource.?exhausted|429/i.test(fallbackMessage)){
+   const next=new Date();next.setUTCHours(24,0,0,0);
+   await env.DB.prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES('CLOUDFLARE_WORKERS_AI_TEXT','exhausted',?,?,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='exhausted',last_error=excluded.last_error,blocked_until=excluded.blocked_until,updated_at=CURRENT_TIMESTAMP").bind(fallbackMessage.slice(0,800),next.toISOString()).run();
+   throw new Error("CLOUDFLARE_AI_QUOTA_EXHAUSTED: Workers AI daily free allocation is exhausted; retry after 00:00 UTC. "+fallbackMessage);
+  }
+  throw new Error("GEMINI_AND_CLOUDFLARE_FALLBACK_FAILED: Gemini keys unavailable; Cloudflare Workers AI fallback failed: "+fallbackMessage);
+ }
 }
 async function generateCloudflareCover(env,id,title,market,productType,description,occasion){
  await ensureFactoryTables(env);
@@ -240,7 +272,7 @@ async function processSingle(context){
   if(activeJobId){
    try{
     const message=String(e.message||e);
-    const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|GEMINI_POOL_EXHAUSTED/i.test(message);
+    const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|GEMINI_POOL_EXHAUSTED|CLOUDFLARE_AI_QUOTA_EXHAUSTED|neurons|daily allocation/i.test(message);
     const temporary=/GEMINI_TEMPORARY_UNAVAILABLE/i.test(message);
     await env.DB.prepare("UPDATE factory_jobs SET status=?,stage=?,error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(quota||temporary?"deferred":"failed",quota?"waiting_for_gemini_quota":temporary?"waiting_for_gemini_service":"failed",message.slice(0,1000),activeJobId).run();
     if(quota||temporary){
@@ -260,7 +292,7 @@ async function processSingle(context){
     }
    }catch(_){}
   }
-  const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|MISSING_GEMINI_KEY|GEMINI_POOL_EXHAUSTED/i.test(String(e.message||e));
+  const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|MISSING_GEMINI_KEY|GEMINI_POOL_EXHAUSTED|CLOUDFLARE_AI_QUOTA_EXHAUSTED|neurons|daily allocation/i.test(String(e.message||e));
   const temporary=/GEMINI_TEMPORARY_UNAVAILABLE/i.test(String(e.message||e));
   return Response.json({error:e.message||"Factory processing failed.",quotaExhausted:quota,temporaryUnavailable:temporary,jobKeptQueued:temporary},{status:quota?429:temporary?503:502});
  }finally{
