@@ -265,7 +265,9 @@ async function processSingle(context){
   }
   const imageUrl="/media/"+cover.imageKey;
   const status=settings.auto_publish?"published":"draft";
-  await env.DB.prepare("INSERT INTO products (id,slug,title,description,category,language,market,occasion,keywords,price,file_key,file_name,file_type,image_key,image_url,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,slug,String(data.title).trim(),String(data.description).trim(),job.product_type,languageName(job.language),job.market,job.occasion,keywords,5,key,"digitalnest-generated.pdf","application/pdf",cover.imageKey,imageUrl,status).run();
+  const productRecord={id,slug,title:String(data.title).trim(),description:String(data.description).trim(),category:job.product_type,language:languageName(job.language),market:job.market,occasion:job.occasion,keywords,price:5,file_key:key,file_name:"digitalnest-generated.pdf",file_type:"application/pdf",image_key:cover.imageKey,image_url:imageUrl,status};
+  const {insertSupabaseProduct}=await import("../_shared/supabase-products.js");
+  await insertSupabaseProduct(env,productRecord);
   if(status==="published"){const {notifyIndexNow}=await import("../_shared/indexnow.js");notifyIndexNow(context,slug)}
   await env.DB.prepare("UPDATE factory_jobs SET status=?,stage='quality_passed',product_slug=?,actual_neurons=0,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(settings.auto_publish?"published":"review",slug,job.id).run();
   await env.DB.prepare("DELETE FROM factory_retry_state WHERE job_id=?").bind(job.id).run();
