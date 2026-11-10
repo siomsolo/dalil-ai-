@@ -1,8 +1,9 @@
+const DEFAULT_SUPABASE_URL="https://ssnjoflgkkimrcapeglg.supabase.co";
 function config(env){
-  const raw=String(env.SUPABASE_URL||"");
+  const raw=String(env.SUPABASE_URL||DEFAULT_SUPABASE_URL);
   const url=raw.endsWith("/")?raw.slice(0,-1):raw;
   const key=String(env.SUPABASE_SERVICE_ROLE_KEY||"");
-  if(!url||!key)throw new Error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Cloudflare Pages secrets.");
+  if(!key)throw new Error("Supabase Secret key is missing in Cloudflare Pages Production. Set SUPABASE_SERVICE_ROLE_KEY.");
   return {url,key};
 }
 async function request(env,path,options={}){
@@ -14,11 +15,11 @@ async function request(env,path,options={}){
 }
 const fields="id,slug,title,description,category,language,market,occasion,keywords,price,file_key,file_name,file_type,image_key,image_url,status,created_at,updated_at";
 export async function listPublishedSupabaseProducts(env){
-  if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY)return [];
+  if(!env.SUPABASE_SERVICE_ROLE_KEY)return [];
   return await request(env,"products?select="+fields+"&status=eq.published&order=created_at.desc",{method:"GET"});
 }
 export async function getPublishedSupabaseProduct(env,slug){
-  if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY)return null;
+  if(!env.SUPABASE_SERVICE_ROLE_KEY)return null;
   const rows=await request(env,"products?select="+fields+"&status=eq.published&slug=eq."+encodeURIComponent(slug)+"&limit=1",{method:"GET"});
   return rows&&rows[0]||null;
 }
@@ -28,11 +29,11 @@ export async function insertSupabaseProduct(env,product){
 }
 
 export async function listDraftSupabaseProducts(env){
-  if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY)return [];
+  if(!env.SUPABASE_SERVICE_ROLE_KEY)return [];
   return await request(env,"products?select="+fields+"&status=eq.draft&order=created_at.desc",{method:"GET"});
 }
 export async function getDraftSupabaseProduct(env,id){
-  if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY)return null;
+  if(!env.SUPABASE_SERVICE_ROLE_KEY)return null;
   const rows=await request(env,"products?select="+fields+"&status=eq.draft&id=eq."+encodeURIComponent(id)+"&limit=1",{method:"GET"});
   return rows&&rows[0]||null;
 }
