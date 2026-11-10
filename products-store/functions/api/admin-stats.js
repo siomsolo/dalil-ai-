@@ -1,3 +1,4 @@
+import {listPublishedSupabaseProducts} from "../_shared/supabase-products.js";
 export async function onRequestGet({request,env}) {
   const token=request.headers.get("x-admin-token")||"";
   if(!env.ADMIN_PASSWORD||token!==env.ADMIN_PASSWORD) return Response.json({error:"Admin authentication failed."},{status:401});
@@ -12,7 +13,10 @@ export async function onRequestGet({request,env}) {
       WHERE p.status='published'
       ORDER BY revenue DESC, sales DESC, p.created_at DESC
     `).all();
-    const products=results.map(p=>({...p,price:Number(p.price||0),views:Number(p.views||0),clicks:Number(p.clicks||0),sales:Number(p.sales||0),revenue:Number(p.revenue||0)}));
+    const supabaseProducts=await listPublishedSupabaseProducts(env);
+    const seen=new Set(results.map(p=>p.slug));
+    const allProducts=[...results,...supabaseProducts.filter(p=>!seen.has(p.slug)).map(p=>({...p,views:0,clicks:0,sales:0,revenue:0}))];
+    const products=allProducts.map(p=>({...p,price:Number(p.price||0),views:Number(p.views||0),clicks:Number(p.clicks||0),sales:Number(p.sales||0),revenue:Number(p.revenue||0)}));
     const summary=products.reduce((a,p)=>({sales:a.sales+p.sales,revenue:a.revenue+p.revenue,views:a.views+p.views,clicks:a.clicks+p.clicks}),{sales:0,revenue:0,views:0,clicks:0});
     const {results:recentOrders=[]}=await env.DB.prepare(`
       SELECT o.paypal_order_id,o.product_slug,p.title,o.amount,o.currency,o.status,o.paid_at
