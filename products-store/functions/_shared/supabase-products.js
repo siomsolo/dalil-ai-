@@ -26,3 +26,13 @@ export async function insertSupabaseProduct(env,product){
   const row={...product,updated_at:new Date().toISOString()};
   return await request(env,"products?on_conflict=id",{method:"POST",headers:{Prefer:"resolution=merge-duplicates,return=minimal"},body:JSON.stringify(row)});
 }
+
+export async function listDraftSupabaseProducts(env){
+  if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY)return [];
+  return await request(env,"products?select="+fields+"&status=eq.draft&order=created_at.desc",{method:"GET"});
+}
+export async function getDraftSupabaseProduct(env,id){
+  if(!env.SUPABASE_URL||!env.SUPABASE_SERVICE_ROLE_KEY)return null;
+  const rows=await request(env,"products?select="+fields+"&status=eq.draft&id=eq."+encodeURIComponent(id)+"&limit=1",{method:"GET"});
+  return rows&&rows[0]||null;
+}
