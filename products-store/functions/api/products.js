@@ -1,3 +1,4 @@
+import {listPublishedSupabaseProducts,insertSupabaseProduct} from "../_shared/supabase-products.js";
 export async function onRequestGet(context){
   const {env,request,waitUntil}=context;
   const cacheKey=new Request(new URL("/api/products",request.url).toString(),{method:"GET"});
@@ -8,8 +9,10 @@ export async function onRequestGet(context){
     // Cache is an optimization; continue to D1 if unavailable.
   }
   try{
-    const {results=[]}=await env.DB.prepare("SELECT id,slug,title,description,category,language,market,occasion,keywords,price,image_url,status,created_at FROM products WHERE status='published' ORDER BY created_at DESC").all();
-    const response=Response.json({products:results.map(product=>({...product,price:5}))},{headers:{"Cache-Control":"public, max-age=60, s-maxage=300, stale-while-revalidate=600"}});
+    const [{results=[]},supabaseProducts]=await Promise.all([env.DB.prepare("SELECT id,slug,title,description,category,language,market,occasion,keywords,price,image_url,status,created_at FROM products WHERE status='published' ORDER BY created_at DESC").all(),listPublishedSupabaseProducts(env)]);
+    const seen=new Set();
+    const combined=[...supabaseProducts,...results].filter(product=>{const key=String(product.id||product.slug);if(seen.has(key)||seen.has("slug:"+product.slug))return false;seen.add(key);seen.add("slug:"+product.slug);return true;});
+    const response=Response.json({products:combined.map(product=>({...product,price:5}))},{headers:{"Cache-Control":"public, max-age=60, s-maxage=300, stale-while-revalidate=600"}});
     try{
       const write=caches.default.put(cacheKey,response.clone());
       if(typeof waitUntil==="function")waitUntil(write);
@@ -50,7 +53,7 @@ export async function onRequestPost(context){
       imageUrl="/media/"+imageKey;
     }
     const data={id,slug,title,description,category:String(form.get("category")||"Digital resource"),language:String(form.get("language")||"English"),market:String(form.get("market")||"Global"),occasion:String(form.get("occasion")||"Evergreen"),keywords:String(form.get("keywords")||""),price:5,file_key:fileKey,file_name:file.name,file_type:file.type||"application/octet-stream",image_key:imageKey,image_url:imageUrl,status:"published"};
-    await env.DB.prepare("INSERT INTO products (id,slug,title,description,category,language,market,occasion,keywords,price,file_key,file_name,file_type,image_key,image_url,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)").bind(data.id,data.slug,data.title,data.description,data.category,data.language,data.market,data.occasion,data.keywords,data.price,data.file_key,data.file_name,data.file_type,data.image_key,data.image_url,data.status).run();
+    await insertSupabaseProduct(env,data);
     try{await caches.default.delete(new Request(new URL("/api/products",request.url).toString(),{method:"GET"}));}catch(e){}
     if(data.status==="published"){
       const {notifyIndexNow}=await import("../_shared/indexnow.js");

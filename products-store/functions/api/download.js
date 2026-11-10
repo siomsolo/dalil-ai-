@@ -1,3 +1,4 @@
+import {getPublishedSupabaseProduct} from "../_shared/supabase-products.js";
 function decodeBase64url(value) {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
   const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
@@ -34,16 +35,18 @@ export async function onRequestGet({ request, env }) {
   if (!payload) return new Response("This download link is invalid or has expired.", { status: 403 });
 
   const order = await env.DB.prepare(
-    "SELECT o.status,p.file_key,p.file_name,p.file_type FROM product_orders o JOIN products p ON p.slug=o.product_slug WHERE o.paypal_order_id=? AND p.status='published'"
+    "SELECT status,product_slug FROM product_orders WHERE paypal_order_id=?"
   ).bind(payload.orderId).first();
   if (!order || order.status !== "COMPLETED") return new Response("A confirmed payment is required.", { status: 403 });
-
-  const object = await env.FILES.get(order.file_key);
+  let product=await env.DB.prepare("SELECT file_key,file_name,file_type FROM products WHERE slug=? AND status='published'").bind(order.product_slug).first();
+  if(!product)product=await getPublishedSupabaseProduct(env,order.product_slug);
+  if(!product)return new Response("The purchased product could not be found.",{status:404});
+  const object = await env.FILES.get(product.file_key);
   if (!object) return new Response("The purchased file could not be found.", { status: 404 });
 
-  const safeName = String(order.file_name || "digital-download").replace(/[\r\n"]/g, "").slice(0, 150);
+  const safeName = String(product.file_name || "digital-download").replace(/[\r\n"]/g, "").slice(0, 150);
   const headers = new Headers();
-  headers.set("Content-Type", order.file_type || "application/octet-stream");
+  headers.set("Content-Type", product.file_type || "application/octet-stream");
   headers.set("Content-Disposition", "attachment; filename*=UTF-8''" + encodeURIComponent(safeName));
   headers.set("Cache-Control", "private, no-store, max-age=0");
   headers.set("X-Content-Type-Options", "nosniff");
