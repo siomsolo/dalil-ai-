@@ -1,3 +1,4 @@
+import {getPublishedSupabaseProduct} from "../../_shared/supabase-products.js";
 const PAYPAL_API = "https://api-m.paypal.com";
 
 async function accessToken(env) {
@@ -36,9 +37,10 @@ export async function onRequestPost({ request, env }) {
     const slug = String(body.slug || "").trim().slice(0, 120);
     if (!slug) return Response.json({ error: "Product is missing." }, { status: 400 });
 
-    const product = await env.DB.prepare(
+    let product = await env.DB.prepare(
       "SELECT slug,title,price,status FROM products WHERE slug=? AND status='published'"
     ).bind(slug).first();
+    if(!product)product=await getPublishedSupabaseProduct(env,slug);
     if (!product) return Response.json({ error: "This product is not available." }, { status: 404 });
 
     // Store-wide annual offer: the server, not the browser or product record, sets the price.
