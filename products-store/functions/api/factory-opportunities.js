@@ -36,7 +36,7 @@ export async function onRequestGet({request,env}){
    }
   }
   ingested+=await bulkInsert(env,live);
-  const {results=[]}=await supabaseDB(env).prepare("SELECT * FROM factory_opportunities WHERE status='candidate' AND (season_end IS NULL OR season_end>=date('now')) ORDER BY opportunity_score DESC,created_at DESC LIMIT 100").all();
+  const {results=[]}=await supabaseDB(env).prepare("SELECT * FROM factory_opportunities WHERE status='candidate' AND (season_end IS NULL OR season_end>=CURRENT_DATE::text) ORDER BY opportunity_score DESC,created_at DESC LIMIT 100").all();
   return Response.json({opportunities:results,ingested,source:"Curated evergreen/seasonal ideas + Google Trends RSS when available"});
  }catch(e){return Response.json({error:e.message},{status:500})}
 }
