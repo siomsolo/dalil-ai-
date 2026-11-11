@@ -23,7 +23,7 @@ function parseLanguages(value){
 async function requeueRecoverableFailures(db,limit){
  if(limit<=0)return [];
  await db.prepare("CREATE TABLE IF NOT EXISTS factory_retry_state (job_id TEXT PRIMARY KEY,attempts INTEGER NOT NULL DEFAULT 0,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)").run();
- const {results=[]}=await db.prepare("SELECT j.id FROM factory_jobs j LEFT JOIN factory_retry_state r ON r.job_id=j.id WHERE j.status='failed' AND j.product_slug IS NULL AND (j.error='Unexpected end of JSON input' OR j.error LIKE 'SUPABASE_RPC_INVALID_JSON:%') AND COALESCE(r.attempts,0)<1 ORDER BY j.updated_at ASC LIMIT ?").bind(Math.min(5,limit)).all();
+ const {results=[]}=await db.prepare("SELECT j.id FROM factory_jobs j LEFT JOIN factory_retry_state r ON r.job_id=j.id WHERE j.status='failed' AND j.product_slug IS NULL AND (j.error='Unexpected end of JSON input' OR j.error LIKE 'SUPABASE_RPC_INVALID_JSON:%' OR j.error LIKE 'GEMINI_503:%' OR j.error='3046: Request timeout' OR j.error LIKE '%not valid JSON%' OR j.error LIKE 'AI draft format was invalid.%') AND COALESCE(r.attempts,0)<1 ORDER BY j.updated_at ASC LIMIT ?").bind(Math.min(5,limit)).all();
  if(!results.length)return [];
  const ids=results.map(row=>row.id),payload=JSON.stringify(ids);
  await db.prepare("INSERT INTO factory_retry_state(job_id,attempts,updated_at) SELECT value,1,CURRENT_TIMESTAMP FROM jsonb_array_elements_text(?::jsonb) ON CONFLICT(job_id) DO UPDATE SET attempts=1,updated_at=CURRENT_TIMESTAMP WHERE factory_retry_state.attempts<1").bind(payload).run();
