@@ -2,6 +2,7 @@ import {supabaseDB} from "../_shared/supabase-db.js";
 async function auth(request,env){
  const supplied=request.headers.get("x-factory-cron")||"";
  if(!supplied)return false;
+ if(env.FACTORY_CRON_SECRET && supplied===env.FACTORY_CRON_SECRET)return true;
  await supabaseDB(env).prepare("CREATE TABLE IF NOT EXISTS factory_scheduler_auth (id INTEGER PRIMARY KEY CHECK(id=1),token TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)").run();
  const row=await supabaseDB(env).prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();
  return !!row?.token&&supplied===row.token;
@@ -21,8 +22,11 @@ export async function onRequestPost({request,env}){
    await supabaseDB(env).prepare("DELETE FROM factory_retry_schedule WHERE job_id=?").bind(item.job_id).run();
   }
   await supabaseDB(env).prepare("UPDATE factory_jobs SET status='queued',stage='queued',error='Recovered automatically after a stale running lease.',updated_at=CURRENT_TIMESTAMP WHERE status='running' AND updated_at<datetime('now','-10 minutes')").run();
+  if(env.FACTORY_CRON_SECRET){
+   await supabaseDB(env).prepare("INSERT INTO factory_scheduler_auth (id,token,created_at) VALUES (1,?,CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET token=excluded.token").bind(env.FACTORY_CRON_SECRET).run();
+  }
   const schedulerAuth=await supabaseDB(env).prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();
-  if(!schedulerAuth?.token)return Response.json({error:"Factory scheduler token is missing from D1."},{status:503});
+  if(!schedulerAuth?.token)return Response.json({error:"Factory scheduler token is missing from Supabase. Configure FACTORY_CRON_SECRET in Cloudflare Pages Production."},{status:503});
   // Refresh curated and live trend opportunities before refilling the rolling queue.
   // This makes production replenishment ongoing instead of relying on a one-time manual seed.
   const opportunitiesUrl=new URL(request.url);opportunitiesUrl.pathname="/api/factory-opportunities";opportunitiesUrl.search="";
