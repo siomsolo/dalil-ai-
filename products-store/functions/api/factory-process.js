@@ -289,7 +289,7 @@ async function processSingle(context){
    try{
     const message=String(e.message||e);
     const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|GEMINI_POOL_EXHAUSTED|CLOUDFLARE_AI_QUOTA_EXHAUSTED|neurons|daily allocation/i.test(message);
-    const temporary=/GEMINI_TEMPORARY_UNAVAILABLE|Unexpected end of JSON input|SUPABASE_RPC_INVALID_JSON|temporarily unavailable|request timeout|network error/i.test(message);
+    const temporary=/GEMINI_TEMPORARY_UNAVAILABLE|GEMINI_503|Unexpected end of JSON input|SUPABASE_RPC_INVALID_JSON|not valid JSON|invalid JSON|AI draft format was invalid|temporarily unavailable|request timeout|network error/i.test(message);
     let attempts=0,nextAt=null;
     if(quota||temporary){
      const prior=await supabaseDB(env).prepare("SELECT GREATEST(COALESCE((SELECT attempts FROM factory_retry_state WHERE job_id=?),0),COALESCE((SELECT attempts FROM factory_retry_schedule WHERE job_id=?),0)) AS attempts").bind(activeJobId,activeJobId).first();
