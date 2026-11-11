@@ -41,7 +41,7 @@ export async function onRequestPost({request,env}){
   // An opportunity remains eligible while its language variants are being produced.
   // This lets the planner fill one language at a time without reopening completed ideas.
   const {results:opportunities=[]}=await supabaseDB(env).prepare(
-   "SELECT * FROM factory_opportunities WHERE status IN ('candidate','in_progress') AND (season_end IS NULL OR season_end>=date('now')) ORDER BY opportunity_score DESC,created_at DESC LIMIT 500"
+   "SELECT * FROM factory_opportunities WHERE status IN ('candidate','in_progress') AND (season_end IS NULL OR season_end>=CURRENT_DATE::text) ORDER BY opportunity_score DESC,created_at DESC LIMIT 500"
   ).all();
 
   let queued=0,skipped=0;
