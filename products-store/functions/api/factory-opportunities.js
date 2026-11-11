@@ -13,13 +13,57 @@ async function bulkInsert(env,rows){
  ).bind(payload).run();
  return Number(result.meta?.changes||0);
 }
+const expansionIdeas=[
+ ["AI-Assisted Small Business Workflow Planner","workbook","Operations"],
+ ["Client Retention and Renewal Tracker","template","Freelance"],
+ ["Quarterly Business Review Workbook","workbook","Business"],
+ ["Digital Marketing Campaign Calendar","template","Marketing"],
+ ["Local Service Business Pricing Calculator Guide","guide","Small Business"],
+ ["Freelancer Proposal and Scope Template Kit","template","Freelance"],
+ ["Customer Onboarding Email Sequence Kit","template","Customer Experience"],
+ ["Simple Cash Flow Forecast Workbook","workbook","Finance"],
+ ["Small Business Risk Register and Action Planner","workbook","Operations"],
+ ["Personal Knowledge Management System","template","Productivity"],
+ ["Remote Team Weekly Planning Pack","template","Remote Work"],
+ ["Professional Development Action Plan","workbook","Career"],
+ ["Job Interview STAR Answer Builder","workbook","Career"],
+ ["New Manager One-to-One Meeting Toolkit","template","Management"],
+ ["Online Workshop Planning and Delivery Kit","workbook","Education"],
+ ["Digital Course Student Progress Tracker","template","Education"],
+ ["Content Creator Sponsorship Tracker","template","Creator Business"],
+ ["Podcast Guest Outreach and Booking Kit","template","Creator Business"],
+ ["Email Marketing Performance Workbook","workbook","Marketing"],
+ ["Website Content Audit and Refresh Planner","workbook","Marketing"],
+ ["Household Subscription and Renewal Tracker","template","Personal Finance"],
+ ["Family Emergency Preparedness Planner","workbook","Home"],
+ ["Home Renovation Budget and Contractor Tracker","template","Home"],
+ ["Travel Budget and Expense Organizer","template","Travel"]
+];
+const expansionMarkets=["United States","United Kingdom","Canada","Australia"];
+async function seedExpansionOpportunities(env){
+ const rows=[];
+ for(let i=0;i<expansionIdeas.length;i++){
+  const [base,type,occasion]=expansionIdeas[i];
+  for(let m=0;m<expansionMarkets.length;m++){
+   const market=expansionMarkets[m];
+   const localizedTitle=base+" - "+market+" Edition";
+   const demand=72+((i*7+m*5)%17),competition=38+((i*11+m*3)%24);
+   rows.push({id:crypto.randomUUID(),title:localizedTitle,product_type:type,market,language:"English",occasion,season_start:null,season_end:null,demand_score:demand,competition_score:competition,opportunity_score:Math.round(demand*.4+(100-competition)*.3+75*.3),source:"factory-evergreen-expansion"});
+  }
+ }
+ return bulkInsert(env,rows);
+}
 export async function onRequestGet({request,env}){
  if(!await auth(request,env))return Response.json({error:"Admin authentication failed."},{status:401});
  try{
   const curated=seeds.map(s=>({id:crypto.randomUUID(),title:s[0],product_type:s[1],market:s[2],language:"English",occasion:s[3],season_start:s[4],season_end:s[5],demand_score:s[6],competition_score:s[7],opportunity_score:Math.round(s[6]*.4+(100-s[7])*.3+70*.3),source:"curated"}));
   let ingested=await bulkInsert(env,curated);
+  const expanded=await seedExpansionOpportunities(env);
+  ingested+=expanded;
+  console.log("FACTORY_OPPORTUNITY_EXPANSION",JSON.stringify({newIdeas:expansionIdeas.length,marketVariants:expansionIdeas.length*expansionMarkets.length,inserted:expanded}));
   const row=await supabaseDB(env).prepare("SELECT markets,seasonal_enabled FROM factory_settings WHERE id=1").first();
-  const markets=JSON.parse(row?.markets||'["United States","United Kingdom","Canada","Australia"]');
+  let markets=["United States","United Kingdom","Canada","Australia"];
+  try{const parsed=JSON.parse(row?.markets||"[]");if(Array.isArray(parsed)&&parsed.length)markets=parsed.map(x=>String(x).trim()).filter(Boolean)}catch(error){console.log("FACTORY_MARKETS_INVALID_JSON",String(error?.message||error))}
   const live=[];
   if(row?.seasonal_enabled!==0){
    for(const market of markets.slice(0,8)){

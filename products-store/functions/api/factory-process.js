@@ -38,6 +38,21 @@ function retryAtFromMessage(message,fallbackMs=6*60*60*1000){
  return new Date(Date.now()+Math.max(60000,ms||fallbackMs)).toISOString();
 }
 
+async function completeDraftContent(env,job,draft,language){
+ const words=String(draft?.content||"").trim().split(/\s+/).filter(Boolean).length;
+ if(words>=520)return draft;
+ if(!env.AI||typeof env.AI.run!=="function")throw new Error("FACTORY_DRAFT_TOO_SHORT: "+words+" words and no expansion provider is available.");
+ const model=env.FACTORY_TEXT_MODEL||"@cf/google/gemma-4-26b-a4b-it";
+ const prompt="Expand and improve this digital product into a complete, useful 600-700 word product in "+language+". Keep the same topic, intended audience, title, description and keywords. Do not add filler or repeat points. Include concrete steps, examples, a practical checklist or worksheet, and a conclusion. Return exactly one JSON object with string fields title, description, keywords, content. The content must be at least 550 words.\n\nCURRENT DRAFT:\n"+JSON.stringify({title:draft.title,description:draft.description,keywords:draft.keywords,content:draft.content}).slice(0,18000);
+ let result;
+ try{result=await env.AI.run(model,{messages:[{role:"system",content:"You are a professional digital publishing editor. Return valid JSON only, with complete content and no markdown fences."},{role:"user",content:prompt}],temperature:0.15,max_tokens:7000,chat_template_kwargs:{enable_thinking:false},response_format:{type:"json_object"}})}catch(error){throw new Error("FACTORY_DRAFT_EXPANSION_FAILED: "+String(error?.message||error))}
+ const raw=result?.response??result?.choices?.[0]?.message?.content??result?.output_text??result?.result?.response??result;
+ let expanded;
+ try{expanded=parseDraft(raw)}catch(error){throw new Error("FACTORY_DRAFT_EXPANSION_INVALID_JSON: "+String(error?.message||error))}
+ const expandedWords=String(expanded.content||"").trim().split(/\s+/).filter(Boolean).length;
+ if(!expanded.title||!expanded.description||expandedWords<500)throw new Error("FACTORY_DRAFT_EXPANSION_INCOMPLETE: "+expandedWords+" words after expansion.");
+ return {...draft,...expanded,_gemini_key_used:draft._gemini_key_used||"CLOUDFLARE_WORKERS_AI_EXPANSION:"+model};
+}
 async function generateCloudflareTextDraft(env,job,language,prompt){
  if(!env.AI||typeof env.AI.run!=="function")throw new Error("CLOUDFLARE_AI_UNAVAILABLE: Workers AI binding is not configured.");
  const model=env.FACTORY_TEXT_MODEL||"@cf/google/gemma-4-26b-a4b-it";
@@ -53,8 +68,9 @@ async function generateCloudflareTextDraft(env,job,language,prompt){
   raw=extract(response);
   try{draft=parseDraft(raw)}catch(secondError){throw new Error("CLOUDFLARE_AI_INVALID_JSON_AFTER_REPAIR: "+String(secondError?.message||secondError)+"; response="+String(typeof raw==="string"?raw:JSON.stringify(raw)).slice(0,500))}
  }
+ draft=await completeDraftContent(env,job,draft,language);
  const words=String(draft.content||"").trim().split(/\s+/).filter(Boolean).length;
- if(!draft.title||!draft.description||words<500)throw new Error("CLOUDFLARE_AI_INCOMPLETE: fallback model returned an incomplete product ("+words+" words).");
+ if(!draft.title||!draft.description||words<500)throw new Error("CLOUDFLARE_AI_INCOMPLETE: fallback model returned an incomplete product ("+words+" words after expansion).");
  draft._gemini_key_used="CLOUDFLARE_WORKERS_AI:"+model;
  await supabaseDB(env).prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES('CLOUDFLARE_WORKERS_AI_TEXT','active',NULL,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='active',last_error=NULL,blocked_until=NULL,updated_at=CURRENT_TIMESTAMP").run();
  console.log("FACTORY_TEXT_FALLBACK_SUCCESS",JSON.stringify({provider:"CLOUDFLARE_WORKERS_AI",model,language:job.language,words}));
@@ -66,7 +82,7 @@ async function generateDraft(env,job){
  // The selected language is carried in the prompt, so any configured key can serve any language.
  const keys=["GEMINI_EN_API_KEY","GEMINI_FR_API_KEY","GEMINI_ES_API_KEY"].filter(k=>!!env[k]);
  if(!keys.length){console.log("FACTORY_NO_GEMINI_KEYS_USING_CLOUDFLARE_AI");return await generateCloudflareTextDraft(env,job,languageName(job.language),"Create a complete, genuinely useful original digital "+job.product_type+" in "+languageName(job.language)+". Write naturally for readers in "+job.market+". Topic: "+job.opportunity_title+". Occasion: "+job.occasion+". Create 550-700 words with an introduction, 5-6 practical sections, concrete steps and examples, an actionable checklist or worksheet, and a concise conclusion. Return exactly one valid JSON object with string fields title, description (70-100 words), keywords (8-12 comma-separated phrases), and content (550-700 words in Markdown, entirely in "+languageName(job.language)+".");}
- const {results:states=[]}=await supabaseDB(env).prepare("SELECT provider_key,state,blocked_until FROM factory_provider_state").all();
+ const {results:states=[]}=await supabaseDB(env).prepare("SELECT provider_key,state,last_error,blocked_until FROM factory_provider_state").all();
  const map=new Map(states.map(x=>[x.provider_key,x]));
  // Normalize legacy rows where a quota error was recorded but the provider state remained active.
  for(const key of keys){
@@ -140,7 +156,7 @@ async function generateDraft(env,job){
   }
   await supabaseDB(env).prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'active',NULL,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='active',last_error=NULL,blocked_until=NULL,updated_at=CURRENT_TIMESTAMP").bind(secretName).run();
   console.log("FACTORY_GEMINI_KEY_SUCCESS",JSON.stringify({provider_key:secretName}));
-  draft._gemini_key_used=secretName;return draft;
+  draft._gemini_key_used=secretName;return await completeDraftContent(env,job,draft,language);
  }
  console.log("FACTORY_GEMINI_POOL_FALLBACK",JSON.stringify({failedKeys:failures.length,temporaryFailures:temporaryFailures.length}));
  try{
