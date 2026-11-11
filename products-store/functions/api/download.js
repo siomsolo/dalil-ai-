@@ -28,7 +28,7 @@ async function verifyToken(token, secret) {
 }
 
 export async function onRequestGet({ request, env }) {
-  if (!env.PAYPAL_CLIENT_SECRET || !supabaseDB(env) || !env.FILES) {
+  if (!env.PAYPAL_CLIENT_SECRET || !env.SUPABASE_SERVICE_ROLE_KEY || !env.FILES) {
     return new Response("Download service is not configured.", { status: 503 });
   }
   const token = new URL(request.url).searchParams.get("token") || "";
