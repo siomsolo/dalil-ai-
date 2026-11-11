@@ -20,31 +20,47 @@ function parseLanguages(value){
   return ["English"];
  }
 }
+async function requeueRecoverableFailures(db,limit){
+ if(limit<=0)return [];
+ await db.prepare("CREATE TABLE IF NOT EXISTS factory_retry_state (job_id TEXT PRIMARY KEY,attempts INTEGER NOT NULL DEFAULT 0,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)").run();
+ const {results=[]}=await db.prepare("SELECT j.id FROM factory_jobs j LEFT JOIN factory_retry_state r ON r.job_id=j.id WHERE j.status='failed' AND j.product_slug IS NULL AND (j.error='Unexpected end of JSON input' OR j.error LIKE 'SUPABASE_RPC_INVALID_JSON:%' OR j.error LIKE 'GEMINI_503:%' OR j.error='3046: Request timeout' OR j.error LIKE '%not valid JSON%' OR j.error LIKE 'AI draft format was invalid.%') AND COALESCE(r.attempts,0)<1 ORDER BY j.updated_at ASC LIMIT ?").bind(Math.min(5,limit)).all();
+ if(!results.length)return [];
+ const ids=results.map(row=>row.id),payload=JSON.stringify(ids);
+ await db.prepare("INSERT INTO factory_retry_state(job_id,attempts,updated_at) SELECT value,1,CURRENT_TIMESTAMP FROM jsonb_array_elements_text(?::jsonb) ON CONFLICT(job_id) DO UPDATE SET attempts=1,updated_at=CURRENT_TIMESTAMP WHERE factory_retry_state.attempts<1").bind(payload).run();
+ const updated=await db.prepare("UPDATE factory_jobs SET status='queued',stage='retry_queued',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id IN (SELECT value FROM jsonb_array_elements_text(?::jsonb)) AND status='failed' AND product_slug IS NULL").bind(payload).run();
+ const count=Number(updated.meta?.changes||0);
+ console.log("FACTORY_RECOVERABLE_FAILURES_REQUEUED",JSON.stringify({selected:ids.length,requeued:count,attempt_limit:1,reason:"previous_unexpected_json_parse_failure"}));
+ return ids.slice(0,count);
+}
 export async function onRequestPost({request,env}){
  if(!await auth(request,env))return Response.json({error:"Admin authentication failed."},{status:401});
  try{
-  const settings=await supabaseDB(env).prepare("SELECT * FROM factory_settings WHERE id=1").first();
+  const db=supabaseDB(env);
+  const settings=await db.prepare("SELECT * FROM factory_settings WHERE id=1").first();
   if(!settings?.enabled)return Response.json({error:"Enable the factory first in its settings."},{status:409});
   const languages=[...new Set(parseLanguages(settings.languages))];
   if(!languages.length)return Response.json({error:"Select at least one production language."},{status:409});
-  const usage=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status IN ('queued','running','deferred')").first();
+  const usage=await db.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status IN ('queued','running','deferred')").first();
   const reserved=Number(usage?.n||0),queueTarget=500,remaining=Math.max(0,queueTarget-reserved);
-  const pendingRow=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
+  const pendingRow=await db.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
   const pendingBefore=Number(pendingRow?.n||0);
-  if(remaining===0)return Response.json({ok:true,queued:0,pending:pendingBefore,skipped:0,queueTarget,reserved,remaining:0,queueTargetReached:true,batchLimit:100,message:"Rolling queue target is already filled. The scheduler will replenish it as jobs complete."});
-  const {results:opportunities=[]}=await supabaseDB(env).prepare("SELECT id,product_type,market,language,occasion FROM factory_opportunities WHERE status IN ('candidate','in_progress') AND (season_end IS NULL OR season_end>=CURRENT_DATE::text) ORDER BY opportunity_score DESC,created_at DESC LIMIT 150").all();
+  if(remaining===0)return Response.json({ok:true,queued:0,retried:0,pending:pendingBefore,skipped:0,queueTarget,reserved,remaining:0,queueTargetReached:true,batchLimit:100,message:"Rolling queue target is already filled. The scheduler will replenish it as jobs complete."});
+  const retriedJobs=await requeueRecoverableFailures(db,remaining);
+  const reservedAfterRetry=reserved+retriedJobs.length,remainingAfterRetry=Math.max(0,queueTarget-reservedAfterRetry);
+  const {results:opportunities=[]}=await db.prepare("SELECT id,product_type,market,language,occasion FROM factory_opportunities WHERE status IN ('candidate','in_progress') AND (season_end IS NULL OR season_end>=CURRENT_DATE::text) ORDER BY opportunity_score DESC,created_at DESC LIMIT 150").all();
   const candidates=[];
   for(const opportunity of opportunities)for(const language of languages)candidates.push({id:crypto.randomUUID(),opportunity_id:opportunity.id,product_type:opportunity.product_type,market:opportunity.market,language,occasion:opportunity.occasion});
-  const batchLimit=Math.min(100,remaining);
+  const batchLimit=Math.min(100,remainingAfterRetry);
   let queued=0;
-  if(candidates.length){
+  if(candidates.length&&batchLimit>0){
    const payload=JSON.stringify(candidates);
-   const inserted=await supabaseDB(env).prepare("INSERT INTO factory_jobs (id,opportunity_id,product_type,market,language,occasion,status,stage,estimated_neurons) SELECT x.id,x.opportunity_id,x.product_type,x.market,x.language,x.occasion,'queued','queued',0 FROM jsonb_to_recordset(?::jsonb) AS x(id text,opportunity_id text,product_type text,market text,language text,occasion text) WHERE NOT EXISTS (SELECT 1 FROM factory_jobs j WHERE j.opportunity_id=x.opportunity_id AND lower(j.language)=lower(x.language)) ORDER BY x.opportunity_id,x.language LIMIT ?").bind(payload,batchLimit).run();
+   const inserted=await db.prepare("INSERT INTO factory_jobs (id,opportunity_id,product_type,market,language,occasion,status,stage,estimated_neurons) SELECT x.id,x.opportunity_id,x.product_type,x.market,x.language,x.occasion,'queued','queued',0 FROM jsonb_to_recordset(?::jsonb) AS x(id text,opportunity_id text,product_type text,market text,language text,occasion text) WHERE NOT EXISTS (SELECT 1 FROM factory_jobs j WHERE j.opportunity_id=x.opportunity_id AND lower(j.language)=lower(x.language)) ORDER BY x.opportunity_id,x.language LIMIT ?").bind(JSON.stringify(candidates),batchLimit).run();
    queued=Number(inserted.meta?.changes||0);
   }
-  const pending=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
-  const totalReserved=reserved+queued,skipped=Math.max(0,candidates.length-queued);
-  return Response.json({ok:true,queued,pending:Number(pending?.n||0),skipped,queueTarget,reserved:totalReserved,remaining:Math.max(0,queueTarget-totalReserved),queueTargetReached:queued===remaining,batchLimit,candidatePairs:candidates.length,message:queued?"Queued "+queued+" product job(s) in one bounded database batch. Existing opportunity/language pairs are not recreated.":"No unprocessed opportunity/language pairs are available. Existing queued jobs can still be processed."});
+  const pending=await db.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
+  const totalReserved=reservedAfterRetry+queued,skipped=Math.max(0,candidates.length-queued);
+  const message=retriedJobs.length||queued?"Requeued "+retriedJobs.length+" previously recoverable job(s) and queued "+queued+" new job(s). Each legacy JSON failure is retried at most once; published products are never re-created.":"No retryable failed jobs or new opportunity/language pairs are available. Existing queued jobs can still be processed.";
+  return Response.json({ok:true,queued,retried:retriedJobs.length,retriedJobIds:retriedJobs,pending:Number(pending?.n||0),skipped,queueTarget,reserved:totalReserved,remaining:Math.max(0,queueTarget-totalReserved),queueTargetReached:totalReserved>=queueTarget,batchLimit,candidatePairs:candidates.length,message});
  }catch(error){
   console.log("FACTORY_PLANNER_ERROR",String(error?.stack||error));
   return Response.json({error:error?.message||"Factory planning failed."},{status:500});

@@ -272,6 +272,13 @@ async function processSingle(context){
   if(status==="published"){const {notifyIndexNow}=await import("../_shared/indexnow.js");notifyIndexNow(context,slug)}
   await supabaseDB(env).prepare("UPDATE factory_jobs SET status=?,stage='quality_passed',product_slug=?,actual_neurons=0,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(settings.auto_publish?"published":"review",slug,job.id).run();
   await supabaseDB(env).prepare("DELETE FROM factory_retry_state WHERE job_id=?").bind(job.id).run();
+  const opportunityJobs=await supabaseDB(env).prepare("SELECT status FROM factory_jobs WHERE opportunity_id=?").bind(job.opportunity_id).all();
+  const statuses=(opportunityJobs.results||[]).map(x=>x.status);
+  const allTerminal=statuses.length>0&&statuses.every(x=>["published","review","failed"].includes(x));
+  if(allTerminal){
+   const finalStatus=statuses.some(x=>x==="failed")?"needs_review":"used";
+   await supabaseDB(env).prepare("UPDATE factory_opportunities SET status=? WHERE id=?").bind(finalStatus,job.opportunity_id).run();
+  }
   await supabaseDB(env).prepare("DELETE FROM factory_retry_schedule WHERE job_id=?").bind(job.id).run();
   await supabaseDB(env).prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run();
   const nextCount=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
@@ -282,22 +289,27 @@ async function processSingle(context){
    try{
     const message=String(e.message||e);
     const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|GEMINI_POOL_EXHAUSTED|CLOUDFLARE_AI_QUOTA_EXHAUSTED|neurons|daily allocation/i.test(message);
-    const temporary=/GEMINI_TEMPORARY_UNAVAILABLE/i.test(message);
-    await supabaseDB(env).prepare("UPDATE factory_jobs SET status=?,stage=?,error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(quota||temporary?"deferred":"failed",quota?"waiting_for_gemini_quota":temporary?"waiting_for_gemini_service":"failed",message.slice(0,1000),activeJobId).run();
+    const temporary=/GEMINI_TEMPORARY_UNAVAILABLE|GEMINI_503|Unexpected end of JSON input|SUPABASE_RPC_INVALID_JSON|not valid JSON|invalid JSON|AI draft format was invalid|temporarily unavailable|request timeout|network error/i.test(message);
+    let attempts=0,nextAt=null;
     if(quota||temporary){
-     let attempts=0,nextAt;
+     const prior=await supabaseDB(env).prepare("SELECT GREATEST(COALESCE((SELECT attempts FROM factory_retry_state WHERE job_id=?),0),COALESCE((SELECT attempts FROM factory_retry_schedule WHERE job_id=?),0)) AS attempts").bind(activeJobId,activeJobId).first();
+     attempts=Number(prior?.attempts||0)+1;
+    }
+    const retryAllowed=(quota||temporary)&&attempts<=1;
+    await supabaseDB(env).prepare("UPDATE factory_jobs SET status=?,stage=?,error=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(retryAllowed?"deferred":"failed",retryAllowed?(quota?"waiting_for_gemini_quota":"waiting_for_service_retry"):"failed",message.slice(0,1000),activeJobId).run();
+    if(retryAllowed){
      if(quota){
       const states=await supabaseDB(env).prepare("SELECT blocked_until,last_error,updated_at FROM factory_provider_state WHERE provider_key LIKE 'GEMINI_%_API_KEY' AND state='exhausted'").all();
       const dates=(states.results||[]).map(s=>s.blocked_until||retryAtFromMessage(s.last_error,6*60*60*1000)).filter(Boolean).sort();
       nextAt=dates[0]||retryAtFromMessage(message,6*60*60*1000);
      }else{
-      const old=await supabaseDB(env).prepare("SELECT attempts FROM factory_retry_schedule WHERE job_id=?").bind(activeJobId).first();
-      attempts=Number(old?.attempts||0)+1;
-      const delays=[60,120,300,900,1800,3600];
-      nextAt=new Date(Date.now()+delays[Math.min(attempts-1,delays.length-1)]*1000).toISOString();
+      const delays=[120];
+      nextAt=new Date(Date.now()+delays[0]*1000).toISOString();
      }
      await supabaseDB(env).prepare("INSERT INTO factory_retry_schedule(job_id,attempts,next_retry_at,reason,updated_at) VALUES(?,?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(job_id) DO UPDATE SET attempts=excluded.attempts,next_retry_at=excluded.next_retry_at,reason=excluded.reason,updated_at=CURRENT_TIMESTAMP").bind(activeJobId,attempts,nextAt,quota?"quota":"temporary").run();
      console.log("FACTORY_JOB_RETRY_SCHEDULED",JSON.stringify({job_id:activeJobId,reason:quota?"quota":"temporary",attempts,next_retry_at:nextAt}));
+    }else if(quota||temporary){
+     console.log("FACTORY_JOB_RETRY_LIMIT_REACHED",JSON.stringify({job_id:activeJobId,attempts,reason:quota?"quota":"temporary"}));
     }
    }catch(_){}
   }
