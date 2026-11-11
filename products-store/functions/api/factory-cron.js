@@ -53,7 +53,7 @@ export async function onRequestPost({request,env}){
    console.log("FACTORY_CRON_USING_WORKERS_AI_FALLBACK",JSON.stringify({next_gemini_reset:quotaState.next_reset,queued:Number(queued?.n||0)}));
   }
   const lock=await supabaseDB(env).prepare("SELECT lock_token,lock_until FROM factory_queue_lock WHERE id=1").first();
-  const lockUntil=lock?.lock_until?Date.parse(String(lock.lock_until).replace(" ","T")+"Z"):0;
+  const lockUntil=lock?.lock_until?Date.parse(String(lock.lock_until)):0;
   if(Number(queued?.n||0)===0)return Response.json({ok:true,released,queued:0,message:"No due jobs."});
   if(lock?.lock_token&&lockUntil>Date.now())return Response.json({ok:true,released,queued:Number(queued.n),busy:true,message:"A production task still owns the queue lease."});
   const url=new URL(request.url);url.pathname="/api/factory-process";url.search="";
