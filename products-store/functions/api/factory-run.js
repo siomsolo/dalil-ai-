@@ -1,10 +1,11 @@
+import {supabaseDB} from "../_shared/supabase-db.js";
 async function auth(request,env){
  const supplied=request.headers.get("x-factory-cron")||"";
  if((!!env.ADMIN_PASSWORD&&(request.headers.get("x-admin-token")||"")===env.ADMIN_PASSWORD)||
   (!!env.FACTORY_CRON_SECRET&&supplied===env.FACTORY_CRON_SECRET))return true;
  if(!supplied)return false;
  try{
-  const row=await env.DB.prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();
+  const row=await supabaseDB(env).prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();
   return !!row?.token&&supplied===row.token;
  }catch(_){return false}
 }
@@ -12,7 +13,7 @@ async function auth(request,env){
 export async function onRequestPost({request,env}){
  if(!await auth(request,env))return Response.json({error:"Admin authentication failed."},{status:401});
  try{
-  const settings=await env.DB.prepare("SELECT * FROM factory_settings WHERE id=1").first();
+  const settings=await supabaseDB(env).prepare("SELECT * FROM factory_settings WHERE id=1").first();
   if(!settings?.enabled)return Response.json({error:"Enable the factory first in its settings."},{status:409});
 
   const languages=[...new Set(JSON.parse(settings.languages||'["English"]')
@@ -21,13 +22,13 @@ export async function onRequestPost({request,env}){
 
   // Keep a deep rolling queue instead of imposing a daily product limit.
   // The queue target bounds planning while production continues until provider quotas are exhausted.
-  const usage=await env.DB.prepare(
+  const usage=await supabaseDB(env).prepare(
    "SELECT COUNT(*) AS n FROM factory_jobs WHERE status IN ('queued','running','deferred')"
   ).first();
   const reserved=Number(usage?.n||0);
   const queueTarget=500;
   const remaining=Math.max(0,queueTarget-reserved);
-  const pendingRow=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
+  const pendingRow=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
   const pendingBefore=Number(pendingRow?.n||0);
 
   if(remaining===0){
@@ -39,7 +40,7 @@ export async function onRequestPost({request,env}){
 
   // An opportunity remains eligible while its language variants are being produced.
   // This lets the planner fill one language at a time without reopening completed ideas.
-  const {results:opportunities=[]}=await env.DB.prepare(
+  const {results:opportunities=[]}=await supabaseDB(env).prepare(
    "SELECT * FROM factory_opportunities WHERE status IN ('candidate','in_progress') AND (season_end IS NULL OR season_end>=date('now')) ORDER BY opportunity_score DESC,created_at DESC LIMIT 500"
   ).all();
 
@@ -48,12 +49,12 @@ export async function onRequestPost({request,env}){
    for(const language of languages){
     if(queued>=remaining)break;
     // Never recreate a previously attempted opportunity/language pair, even if its job failed.
-    const existing=await env.DB.prepare(
+    const existing=await supabaseDB(env).prepare(
      "SELECT 1 FROM factory_jobs WHERE opportunity_id=? AND lower(language)=lower(?) LIMIT 1"
     ).bind(opportunity.id,language).first();
     if(existing){skipped++;continue;}
 
-    const inserted=await env.DB.prepare(
+    const inserted=await supabaseDB(env).prepare(
      "INSERT OR IGNORE INTO factory_jobs (id,opportunity_id,product_type,market,language,occasion,status,stage,estimated_neurons) VALUES (?,?,?,?,?,?, 'queued','queued',0)"
     ).bind(crypto.randomUUID(),opportunity.id,opportunity.product_type,opportunity.market,language,opportunity.occasion).run();
 
@@ -63,7 +64,7 @@ export async function onRequestPost({request,env}){
    if(queued>=remaining)break;
   }
 
-  const pending=await env.DB.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
+  const pending=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
   const totalReserved=reserved+queued;
   return Response.json({
    ok:true,queued,pending:Number(pending?.n||0),skipped,queueTarget,reserved:totalReserved,

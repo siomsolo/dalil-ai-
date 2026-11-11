@@ -1,3 +1,4 @@
+import {supabaseDB} from "../../_shared/supabase-db.js";
 const PAYPAL_API = "https://api-m.paypal.com";
 
 async function accessToken(env) {
@@ -71,7 +72,7 @@ export async function onRequestPost({ request, env }) {
       return Response.json({ error: "PayPal order ID is required." }, { status: 400 });
     }
 
-    const order = await env.DB.prepare(
+    const order = await supabaseDB(env).prepare(
       "SELECT paypal_order_id,product_slug,status,amount,currency FROM product_orders WHERE paypal_order_id=?"
     ).bind(orderId).first();
     if (!order) {
@@ -155,7 +156,7 @@ export async function onRequestPost({ request, env }) {
         }, { status: 402 });
       }
 
-      await env.DB.prepare(
+      await supabaseDB(env).prepare(
         "UPDATE product_orders SET status='COMPLETED',capture_id=?,paid_at=CURRENT_TIMESTAMP WHERE paypal_order_id=?"
       ).bind(capture.id || null, orderId).run();
     }

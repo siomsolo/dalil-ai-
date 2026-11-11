@@ -1,3 +1,4 @@
+import {supabaseDB} from "../_shared/supabase-db.js";
 import {getPublishedSupabaseProduct} from "../_shared/supabase-products.js";
 function decodeBase64url(value) {
   const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
@@ -27,18 +28,18 @@ async function verifyToken(token, secret) {
 }
 
 export async function onRequestGet({ request, env }) {
-  if (!env.PAYPAL_CLIENT_SECRET || !env.DB || !env.FILES) {
+  if (!env.PAYPAL_CLIENT_SECRET || !env.SUPABASE_SERVICE_ROLE_KEY || !env.FILES) {
     return new Response("Download service is not configured.", { status: 503 });
   }
   const token = new URL(request.url).searchParams.get("token") || "";
   const payload = await verifyToken(token, env.PAYPAL_CLIENT_SECRET);
   if (!payload) return new Response("This download link is invalid or has expired.", { status: 403 });
 
-  const order = await env.DB.prepare(
+  const order = await supabaseDB(env).prepare(
     "SELECT status,product_slug FROM product_orders WHERE paypal_order_id=?"
   ).bind(payload.orderId).first();
   if (!order || order.status !== "COMPLETED") return new Response("A confirmed payment is required.", { status: 403 });
-  let product=await env.DB.prepare("SELECT file_key,file_name,file_type FROM products WHERE slug=? AND status='published'").bind(order.product_slug).first();
+  let product=await supabaseDB(env).prepare("SELECT file_key,file_name,file_type FROM products WHERE slug=? AND status='published'").bind(order.product_slug).first();
   if(!product)product=await getPublishedSupabaseProduct(env,order.product_slug);
   if(!product)return new Response("The purchased product could not be found.",{status:404});
   const object = await env.FILES.get(product.file_key);

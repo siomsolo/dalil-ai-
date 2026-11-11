@@ -1,3 +1,4 @@
+import {supabaseDB} from "../../_shared/supabase-db.js";
 import {getPublishedSupabaseProduct} from "../../_shared/supabase-products.js";
 const PAYPAL_API = "https://api-m.paypal.com";
 
@@ -29,7 +30,7 @@ export async function onRequestPost({ request, env }) {
   if (origin && origin !== new URL(request.url).origin) {
     return Response.json({ error: "Invalid request origin." }, { status: 403 });
   }
-  if (!env.DB || !env.FILES) {
+  if (!env.SUPABASE_SERVICE_ROLE_KEY || !env.FILES) {
     return Response.json({ error: "Store database or private file storage is not configured." }, { status: 503 });
   }
   try {
@@ -37,7 +38,7 @@ export async function onRequestPost({ request, env }) {
     const slug = String(body.slug || "").trim().slice(0, 120);
     if (!slug) return Response.json({ error: "Product is missing." }, { status: 400 });
 
-    let product = await env.DB.prepare(
+    let product = await supabaseDB(env).prepare(
       "SELECT slug,title,price,status FROM products WHERE slug=? AND status='published'"
     ).bind(slug).first();
     if(!product)product=await getPublishedSupabaseProduct(env,slug);
@@ -74,7 +75,7 @@ export async function onRequestPost({ request, env }) {
       return Response.json({ error: data.message || "PayPal could not create the order.", details: data.details || [] }, { status: 502 });
     }
 
-    await env.DB.prepare(
+    await supabaseDB(env).prepare(
       "INSERT INTO product_orders (id,paypal_order_id,product_slug,amount,currency,status) VALUES (?,?,?,?,?,'CREATED')"
     ).bind(crypto.randomUUID(), data.id, product.slug, amount.toFixed(2), "USD").run();
 

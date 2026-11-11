@@ -1,3 +1,4 @@
+import {supabaseDB} from "../_shared/supabase-db.js";
 import {getPublishedSupabaseProduct,listPublishedSupabaseProducts} from "../_shared/supabase-products.js";
 const esc=s=>String(s||"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const words=s=>new Set(String(s||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").split(/[^a-z0-9]+/).filter(w=>w.length>2));
@@ -14,11 +15,11 @@ function relatedScore(current,candidate){
 function card(p){return `<a class="product-card" href="/product/${encodeURIComponent(p.slug)}"><div class="cover">${p.image_url?`<img loading="lazy" src="${esc(p.image_url)}" alt="${esc(p.title)} cover">`:'<span class="placeholder">✦</span>'}</div><div class="product-info"><div class="tags"><span class="tag annual-price-tag">ANNUAL OFFER · $5</span><span class="tag">${esc(p.category||"Digital resource")}</span><span class="tag">${esc(p.language||"English")}</span></div><h3>${esc(p.title)}</h3><p>${esc((p.description||"").slice(0,115))}</p><div class="price-row"><span class="price">$5.00</span><span class="view">View product →</span></div></div></a>`}
 export async function onRequest({params,env}){
  const slug=String(params.slug||"");
- let p=await env.DB.prepare("SELECT slug,title,description,category,language,market,occasion,keywords,price,image_url FROM products WHERE slug=? AND status='published'").bind(slug).first();
+ let p=await supabaseDB(env).prepare("SELECT slug,title,description,category,language,market,occasion,keywords,price,image_url FROM products WHERE slug=? AND status='published'").bind(slug).first();
  if(!p)p=await getPublishedSupabaseProduct(env,slug);
  if(!p)return new Response("Product not found",{status:404});
  p.price=5; // Annual store-wide offer; keep display, structured data and checkout aligned.
- const [{results=[]},supabaseResults]=await Promise.all([env.DB.prepare("SELECT slug,title,description,category,language,market,keywords,price,image_url,created_at FROM products WHERE status='published' AND slug<>? ORDER BY created_at DESC LIMIT 100").bind(slug).all(),listPublishedSupabaseProducts(env)]);
+ const [{results=[]},supabaseResults]=await Promise.all([supabaseDB(env).prepare("SELECT slug,title,description,category,language,market,keywords,price,image_url,created_at FROM products WHERE status='published' AND slug<>? ORDER BY created_at DESC LIMIT 100").bind(slug).all(),listPublishedSupabaseProducts(env)]);
  const seen=new Set([slug]);
  const candidates=[...supabaseResults,...results].filter(item=>{if(seen.has(item.slug))return false;seen.add(item.slug);return true;});
  const related=candidates.map(item=>({...item,_score:relatedScore(p,item)})).filter(item=>item._score>0).sort((a,b)=>b._score-a._score||String(b.created_at||"").localeCompare(String(a.created_at||""))).slice(0,6);

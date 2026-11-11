@@ -1,3 +1,4 @@
+import {supabaseDB} from "./_shared/supabase-db.js";
 const origin = "https://digital-products-store-4yt.pages.dev";
 
 function clean(value) {
@@ -6,7 +7,7 @@ function clean(value) {
 
 export async function onRequest({ env }) {
   try {
-    const { results = [] } = await env.DB.prepare(
+    const { results = [] } = await supabaseDB(env).prepare(
       "SELECT slug,title,description,category,language,market,price FROM products WHERE status='published' ORDER BY created_at DESC LIMIT 50000"
     ).all();
 
