@@ -8,8 +8,16 @@ export function supabaseDB(env){
     let lastError=null;
     // A transiently truncated RPC response is safe to retry only for read-only SQL.
     for(let attempt=0;attempt<(readOnly?2:1);attempt++){
-      const response=await fetch(url+"/rest/v1/rpc/digitalnest_d1_query",{method:"POST",headers:{apikey:key,Authorization:"Bearer "+key,"Content-Type":"application/json"},body:JSON.stringify({p_sql:sql,p_params:params})});
-      const raw=await response.text();
+      let response,raw;
+      try{
+        response=await fetch(url+"/rest/v1/rpc/digitalnest_d1_query",{method:"POST",headers:{apikey:key,Authorization:"Bearer "+key,"Content-Type":"application/json"},body:JSON.stringify({p_sql:sql,p_params:params})});
+        raw=await response.text();
+      }catch(networkError){
+        lastError=networkError;
+        console.log("SUPABASE_RPC_NETWORK_ERROR",JSON.stringify({readOnly,attempt:attempt+1,host:new URL(url).host,errorName:networkError?.name||"Error",message:String(networkError?.message||networkError).slice(0,180),sql:sql.slice(0,120)}));
+        if(readOnly&&attempt===0)continue;
+        throw new Error("SUPABASE_RPC_NETWORK_ERROR: Could not reach Supabase host "+new URL(url).host+" while running "+(readOnly?"a read query":"a database write")+". "+String(networkError?.message||networkError));
+      }
       if(!response.ok)throw new Error("Supabase database request failed ("+response.status+"): "+raw.slice(0,400));
       try{
         const result=JSON.parse(raw);
