@@ -1,3 +1,4 @@
+import {supabaseDB} from "../_shared/supabase-db.js";
 import {listPublishedSupabaseProducts,insertSupabaseProduct} from "../_shared/supabase-products.js";
 export async function onRequestGet(context){
   const {env,request,waitUntil}=context;
@@ -9,7 +10,7 @@ export async function onRequestGet(context){
     // Cache is an optimization; continue to D1 if unavailable.
   }
   try{
-    const [{results=[]},supabaseProducts]=await Promise.all([env.DB.prepare("SELECT id,slug,title,description,category,language,market,occasion,keywords,price,image_url,status,created_at FROM products WHERE status='published' ORDER BY created_at DESC").all(),listPublishedSupabaseProducts(env)]);
+    const [{results=[]},supabaseProducts]=await Promise.all([supabaseDB(env).prepare("SELECT id,slug,title,description,category,language,market,occasion,keywords,price,image_url,status,created_at FROM products WHERE status='published' ORDER BY created_at DESC").all(),listPublishedSupabaseProducts(env)]);
     const seen=new Set();
     const combined=[...supabaseProducts,...results].filter(product=>{const key=String(product.id||product.slug);if(seen.has(key)||seen.has("slug:"+product.slug))return false;seen.add(key);seen.add("slug:"+product.slug);return true;});
     const response=Response.json({products:combined.map(product=>({...product,price:5}))},{headers:{"Cache-Control":"public, max-age=60, s-maxage=300, stale-while-revalidate=600"}});
