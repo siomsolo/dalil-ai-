@@ -20,8 +20,9 @@ export async function onRequestPost({request,env}){
    .map(value=>String(value||"").trim()).filter(Boolean))];
   if(!languages.length)return Response.json({error:"Select at least one production language."},{status:409});
 
-  // Keep a deep rolling queue instead of imposing a daily product limit.
-  // The queue target bounds planning while production continues until provider quotas are exhausted.
+  // Bound both the rolling queue and the work done by one Worker invocation.
+  // The previous implementation issued one database subrequest per opportunity/language pair,
+  // which could exceed Cloudflare's per-invocation subrequest limit.
   const usage=await supabaseDB(env).prepare(
    "SELECT COUNT(*) AS n FROM factory_jobs WHERE status IN ('queued','running','deferred')"
   ).first();
@@ -34,46 +35,53 @@ export async function onRequestPost({request,env}){
   if(remaining===0){
    return Response.json({
     ok:true,queued:0,pending:pendingBefore,skipped:0,queueTarget,reserved,remaining:0,queueTargetReached:true,
-    message:"Rolling queue target is already filled. The scheduler will replenish it as jobs complete."
+    batchLimit:100,message:"Rolling queue target is already filled. The scheduler will replenish it as jobs complete."
    });
   }
 
-  // An opportunity remains eligible while its language variants are being produced.
-  // This lets the planner fill one language at a time without reopening completed ideas.
+  // A single bounded read, followed by one bulk INSERT ... SELECT.
+  // Keep opportunity/language pairs unique across all historical job states.
   const {results:opportunities=[]}=await supabaseDB(env).prepare(
-   "SELECT * FROM factory_opportunities WHERE status IN ('candidate','in_progress') AND (season_end IS NULL OR season_end>=CURRENT_DATE::text) ORDER BY opportunity_score DESC,created_at DESC LIMIT 500"
+   "SELECT id,product_type,market,language,occasion FROM factory_opportunities WHERE status IN ('candidate','in_progress') AND (season_end IS NULL OR season_end>=CURRENT_DATE::text) ORDER BY opportunity_score DESC,created_at DESC LIMIT 150"
   ).all();
 
-  let queued=0,skipped=0;
+  const candidates=[];
   for(const opportunity of opportunities){
    for(const language of languages){
-    if(queued>=remaining)break;
-    // Never recreate a previously attempted opportunity/language pair, even if its job failed.
-    const existing=await supabaseDB(env).prepare(
-     "SELECT 1 FROM factory_jobs WHERE opportunity_id=? AND lower(language)=lower(?) LIMIT 1"
-    ).bind(opportunity.id,language).first();
-    if(existing){skipped++;continue;}
-
-    const inserted=await supabaseDB(env).prepare(
-     "INSERT OR IGNORE INTO factory_jobs (id,opportunity_id,product_type,market,language,occasion,status,stage,estimated_neurons) VALUES (?,?,?,?,?,?, 'queued','queued',0)"
-    ).bind(crypto.randomUUID(),opportunity.id,opportunity.product_type,opportunity.market,language,opportunity.occasion).run();
-
-    if(Number(inserted.meta?.changes||0)>0)queued++;
-    else skipped++;
+    candidates.push({
+     id:crypto.randomUUID(),opportunity_id:opportunity.id,product_type:opportunity.product_type,
+     market:opportunity.market,language,occasion:opportunity.occasion
+    });
    }
-   if(queued>=remaining)break;
+  }
+
+  const batchLimit=Math.min(100,remaining);
+  let queued=0;
+  if(candidates.length){
+   const payload=JSON.stringify(candidates);
+   const inserted=await supabaseDB(env).prepare(
+    "INSERT INTO factory_jobs (id,opportunity_id,product_type,market,language,occasion,status,stage,estimated_neurons) " +
+    "SELECT x.id,x.opportunity_id,x.product_type,x.market,x.language,x.occasion,'queued','queued',0 " +
+    "FROM jsonb_to_recordset(?::jsonb) AS x(id text,opportunity_id text,product_type text,market text,language text,occasion text) " +
+    "WHERE NOT EXISTS (SELECT 1 FROM factory_jobs j WHERE j.opportunity_id=x.opportunity_id AND lower(j.language)=lower(x.language)) " +
+    "ORDER BY x.opportunity_id,x.language LIMIT ?"
+   ).bind(payload,batchLimit).run();
+   queued=Number(inserted.meta?.changes||0);
   }
 
   const pending=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
   const totalReserved=reserved+queued;
+  const skipped=Math.max(0,candidates.length-queued);
   return Response.json({
    ok:true,queued,pending:Number(pending?.n||0),skipped,queueTarget,reserved:totalReserved,
    remaining:Math.max(0,queueTarget-totalReserved),queueTargetReached:queued===remaining,
+   batchLimit,candidatePairs:candidates.length,
    message:queued
-    ?"Queued "+queued+" new product job(s) in the rolling queue. Existing opportunity/language pairs are not recreated."
+    ?"Queued "+queued+" product job(s) in one bounded database batch. Existing opportunity/language pairs are not recreated."
     :"No unprocessed opportunity/language pairs are available. Existing queued jobs can still be processed."
   });
  }catch(error){
+  console.log("FACTORY_PLANNER_ERROR",String(error?.stack||error));
   return Response.json({error:error?.message||"Factory planning failed."},{status:500});
  }
 }
