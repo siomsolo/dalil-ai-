@@ -1,3 +1,4 @@
+import {supabaseDB} from "./_shared/supabase-db.js";
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
   "&": "&amp;",
   "<": "&lt;",
@@ -44,7 +45,7 @@ export async function onRequest(context) {
   const fallback = response.clone();
 
   try {
-    const { results = [] } = await context.env.DB.prepare(
+    const { results = [] } = await supabaseDB(context.env).prepare(
       "SELECT slug,title,description,category,language,price,image_url FROM products WHERE status='published' ORDER BY created_at DESC LIMIT 500"
     ).all();
 
