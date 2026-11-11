@@ -253,8 +253,15 @@ async function processSingle(context){
    await supabaseDB(env).prepare("UPDATE factory_jobs SET status='queued',stage='queued',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE status='deferred' AND id IN (SELECT job_id FROM factory_retry_schedule WHERE next_retry_at<=CURRENT_TIMESTAMP)").run();
    await supabaseDB(env).prepare("DELETE FROM factory_retry_schedule WHERE next_retry_at<=CURRENT_TIMESTAMP").run();
   }
-  // No daily product cap: process queued jobs sequentially until the queue is empty
-  // or every configured Gemini key reports exhausted quota.
+  // Respect the configured daily production cap so the queue cannot burn through
+  // free AI allocations by launching an unbounded number of products in one day.
+  const dailyCap=Math.max(1,Number(settings.daily_product_cap||50));
+  const dailyCount=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status IN ('published','review') AND updated_at>=date_trunc('day',CURRENT_TIMESTAMP)").first();
+  const producedToday=Number(dailyCount?.n||0);
+  if(producedToday>=dailyCap){
+   await supabaseDB(env).prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run();
+   return Response.json({ok:true,paused:true,reason:"daily_product_cap_reached",producedToday,dailyCap,message:"The configured daily production cap has been reached. Queued jobs are preserved and production resumes after the UTC day resets."});
+  }
   const body=await request.clone().json().catch(()=>({}));
   const requestedLanguage=body.language?String(body.language):null;
   const job=await supabaseDB(env).prepare("SELECT j.*,o.title opportunity_title FROM factory_jobs j JOIN factory_opportunities o ON o.id=j.opportunity_id WHERE j.status='queued' AND (? IS NULL OR upper(substr(j.language,1,2))=upper(substr(?,1,2))) ORDER BY o.opportunity_score DESC,j.created_at LIMIT 1").bind(requestedLanguage,requestedLanguage).first();
