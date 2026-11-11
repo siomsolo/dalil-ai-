@@ -22,36 +22,27 @@ export async function onRequestPost({request,env}){
    await supabaseDB(env).prepare("DELETE FROM factory_retry_schedule WHERE job_id=?").bind(item.job_id).run();
   }
   await supabaseDB(env).prepare("UPDATE factory_jobs SET status='queued',stage='queued',error='Recovered automatically after a stale running lease.',updated_at=CURRENT_TIMESTAMP WHERE status='running' AND updated_at<datetime('now','-10 minutes')").run();
-  if(env.FACTORY_CRON_SECRET){
-   await supabaseDB(env).prepare("INSERT INTO factory_scheduler_auth (id,token,created_at) VALUES (1,?,CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET token=excluded.token").bind(env.FACTORY_CRON_SECRET).run();
-  }
+  // Keep the scheduler's canonical token stable. The five-minute scheduler still
+  // authenticates with its legacy D1 token; the fifteen-minute Worker may use the
+  // separate Pages FACTORY_CRON_SECRET. Never overwrite one credential with the other.
   const schedulerAuth=await supabaseDB(env).prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();
-  if(!schedulerAuth?.token)return Response.json({error:"Factory scheduler token is missing from Supabase. Configure FACTORY_CRON_SECRET in Cloudflare Pages Production."},{status:503});
-  // Refresh curated and live trend opportunities before refilling the rolling queue.
-  // This makes production replenishment ongoing instead of relying on a one-time manual seed.
+  if(!schedulerAuth?.token)return Response.json({error:"Factory scheduler token is missing from Supabase. Restore the scheduler token in factory_scheduler_auth."},{status:503});
   const opportunitiesUrl=new URL(request.url);opportunitiesUrl.pathname="/api/factory-opportunities";opportunitiesUrl.search="";
   const opportunitiesResponse=await fetch(opportunitiesUrl.toString(),{method:"GET",headers:{"x-factory-cron":schedulerAuth.token}});
   const opportunitiesBody=await opportunitiesResponse.json().catch(()=>({}));
   if(!opportunitiesResponse.ok){console.log("FACTORY_CRON_OPPORTUNITY_ERROR",JSON.stringify({status:opportunitiesResponse.status,body:opportunitiesBody}));return Response.json({error:"Factory opportunity refresh failed.",opportunities:opportunitiesBody},{status:502});}
   console.log("FACTORY_CRON_OPPORTUNITIES",JSON.stringify({count:opportunitiesBody.opportunities?.length||0,ingested:opportunitiesBody.ingested||0}));
-  // Refill the rolling queue on every five-minute scheduler tick. Existing opportunity/language
-  // pairs are idempotent, so this never recreates jobs that were already attempted.
   const planUrl=new URL(request.url);planUrl.pathname="/api/factory-run";planUrl.search="";
   const planResponse=await fetch(planUrl.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":schedulerAuth.token},body:"{}"});
   const planBody=await planResponse.json().catch(()=>({}));
   if(!planResponse.ok){console.log("FACTORY_CRON_PLANNER_ERROR",JSON.stringify({status:planResponse.status,body:planBody}));return Response.json({error:"Factory queue planner failed.",planner:planBody},{status:502});}
   console.log("FACTORY_CRON_PLAN",JSON.stringify(planBody));
-  // Do not create repeated failed attempts while all three Gemini free-tier keys are
-  // in their quota cooldown. The cron keeps checking; the first reset key is tested
-  // automatically as soon as its blocked_until time passes.
   const quotaState=await supabaseDB(env).prepare("SELECT COUNT(*) AS n,MIN(blocked_until) AS next_reset FROM factory_provider_state WHERE provider_key IN ('GEMINI_EN_API_KEY','GEMINI_FR_API_KEY','GEMINI_ES_API_KEY') AND state='exhausted' AND blocked_until IS NOT NULL AND datetime(blocked_until)>CURRENT_TIMESTAMP").first();
   const queued=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
   if(Number(quotaState?.n||0)>=3&&!env.AI){
    return Response.json({ok:true,paused:true,reason:"all_gemini_quotas_exhausted_no_fallback",next_retry_at:quotaState.next_reset,queued:Number(queued?.n||0),message:"All Gemini free quotas are exhausted and Workers AI fallback is not bound. The scheduler will retry after quota reset."});
   }
-  if(Number(quotaState?.n||0)>=3&&env.AI){
-   console.log("FACTORY_CRON_USING_WORKERS_AI_FALLBACK",JSON.stringify({next_gemini_reset:quotaState.next_reset,queued:Number(queued?.n||0)}));
-  }
+  if(Number(quotaState?.n||0)>=3&&env.AI)console.log("FACTORY_CRON_USING_WORKERS_AI_FALLBACK",JSON.stringify({next_gemini_reset:quotaState.next_reset,queued:Number(queued?.n||0)}));
   const lock=await supabaseDB(env).prepare("SELECT lock_token,lock_until FROM factory_queue_lock WHERE id=1").first();
   const lockUntil=lock?.lock_until?Date.parse(String(lock.lock_until)):0;
   if(Number(queued?.n||0)===0)return Response.json({ok:true,released,queued:0,message:"No due jobs."});
