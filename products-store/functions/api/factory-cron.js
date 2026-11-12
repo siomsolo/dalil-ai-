@@ -28,7 +28,7 @@ export async function onRequestPost({request,env}){
   const schedulerAuth=await supabaseDB(env).prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();
   if(!schedulerAuth?.token)return Response.json({error:"Factory scheduler token is missing from Supabase. Restore the scheduler token in factory_scheduler_auth."},{status:503});
   const opportunitiesUrl=new URL(request.url);opportunitiesUrl.pathname="/api/factory-opportunities";opportunitiesUrl.search="";
-  const opportunitiesResponse=await fetch(opportunitiesUrl.toString(),{method:"GET",headers:{"x-factory-cron":schedulerAuth.token}});
+  const opportunitiesResponse=await fetch(opportunitiesUrl.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":schedulerAuth.token},body:"{}"});
   const opportunitiesBody=await opportunitiesResponse.json().catch(()=>({}));
   if(!opportunitiesResponse.ok){console.log("FACTORY_CRON_OPPORTUNITY_ERROR",JSON.stringify({status:opportunitiesResponse.status,body:opportunitiesBody}));return Response.json({error:"Factory opportunity refresh failed.",opportunities:opportunitiesBody},{status:502});}
   console.log("FACTORY_CRON_OPPORTUNITIES",JSON.stringify({count:opportunitiesBody.opportunities?.length||0,ingested:opportunitiesBody.ingested||0}));
