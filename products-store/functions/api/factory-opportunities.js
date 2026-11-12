@@ -56,31 +56,49 @@ async function seedExpansionOpportunities(env){
 export async function onRequestGet({request,env}){
  if(!await auth(request,env))return Response.json({error:"Admin authentication failed."},{status:401});
  try{
-  const curated=seeds.map(s=>({id:crypto.randomUUID(),title:s[0],product_type:s[1],market:s[2],language:"English",occasion:s[3],season_start:s[4],season_end:s[5],demand_score:s[6],competition_score:s[7],opportunity_score:Math.round(s[6]*.4+(100-s[7])*.3+70*.3),source:"curated"}));
-  let ingested=await bulkInsert(env,curated);
-  const expanded=await seedExpansionOpportunities(env);
-  ingested+=expanded;
-  console.log("FACTORY_OPPORTUNITY_EXPANSION",JSON.stringify({newIdeas:expansionIdeas.length,marketVariants:expansionIdeas.length*expansionMarkets.length,inserted:expanded}));
-  const row=await supabaseDB(env).prepare("SELECT markets,seasonal_enabled FROM factory_settings WHERE id=1").first();
-  let markets=["United States","United Kingdom","Canada","Australia"];
-  try{const parsed=JSON.parse(row?.markets||"[]");if(Array.isArray(parsed)&&parsed.length)markets=parsed.map(x=>String(x).trim()).filter(Boolean)}catch(error){console.log("FACTORY_MARKETS_INVALID_JSON",String(error?.message||error))}
-  const live=[];
-  if(row?.seasonal_enabled!==0){
-   for(const market of markets.slice(0,8)){
-    const code=geo[market];if(!code)continue;
-    try{
-     const r=await fetch("https://trends.google.com/trending/rss?geo="+code,{headers:{"user-agent":"DigitalNestFactory/1.0"}});
-     if(!r.ok)continue;
-     for(const title of rssTitles(await r.text()).slice(0,20)){
-      const demand=score(title);if(demand<60)continue;
-      const seasonal=/christmas|holiday|halloween|thanksgiving|new year|back to school|easter|mother.?s day|father.?s day|valentine|wedding/i.test(title);
-      live.push({id:crypto.randomUUID(),title,product_type:kind(title),market,language:"English",occasion:seasonal?"Seasonal trend":"Trend signal",season_start:null,season_end:null,demand_score:demand,competition_score:50,opportunity_score:Math.round(demand*.65+17.5),source:"Google Trends RSS"});
-     }
-    }catch(e){console.log("Trend feed unavailable",market,e.message)}
-   }
-  }
-  ingested+=await bulkInsert(env,live);
   const {results=[]}=await supabaseDB(env).prepare("SELECT * FROM factory_opportunities WHERE status='candidate' AND (season_end IS NULL OR season_end>=CURRENT_DATE::text) ORDER BY opportunity_score DESC,created_at DESC LIMIT 100").all();
-  return Response.json({opportunities:results,ingested,source:"Curated evergreen/seasonal ideas + Google Trends RSS when available"});
+  return Response.json({opportunities:results,ingested:0,source:"Cached opportunities"});
  }catch(e){return Response.json({error:e.message},{status:500})}
+}
+export async function onRequestPost({request,env}){
+ if(!await auth(request,env))return Response.json({error:"Admin authentication failed."},{status:401});
+ try{
+  await supabaseDB(env).prepare("CREATE TABLE IF NOT EXISTS factory_discovery_state (id INTEGER PRIMARY KEY CHECK(id=1),last_run_at TIMESTAMPTZ NOT NULL DEFAULT '1970-01-01T00:00:00Z')").run();
+  const claim=await supabaseDB(env).prepare("INSERT INTO factory_discovery_state(id,last_run_at) VALUES(1,CURRENT_TIMESTAMP) ON CONFLICT(id) DO UPDATE SET last_run_at=excluded.last_run_at WHERE factory_discovery_state.last_run_at<CURRENT_TIMESTAMP-INTERVAL '6 hours'").run();
+  if(Number(claim.meta?.changes||0)===0){
+   const state=await supabaseDB(env).prepare("SELECT last_run_at FROM factory_discovery_state WHERE id=1").first();
+   return Response.json({ok:true,skipped:true,lastRunAt:state?.last_run_at||null,message:"Opportunity discovery was already refreshed within the last six hours."});
+  }
+ 
+   const curated=seeds.map(s=>({id:crypto.randomUUID(),title:s[0],product_type:s[1],market:s[2],language:"English",occasion:s[3],season_start:s[4],season_end:s[5],demand_score:s[6],competition_score:s[7],opportunity_score:Math.round(s[6]*.4+(100-s[7])*.3+70*.3),source:"curated"}));
+   let ingested=await bulkInsert(env,curated);
+   const expanded=await seedExpansionOpportunities(env);
+   ingested+=expanded;
+   console.log("FACTORY_OPPORTUNITY_EXPANSION",JSON.stringify({newIdeas:expansionIdeas.length,marketVariants:expansionIdeas.length*expansionMarkets.length,inserted:expanded}));
+   const row=await supabaseDB(env).prepare("SELECT markets,seasonal_enabled FROM factory_settings WHERE id=1").first();
+   let markets=["United States","United Kingdom","Canada","Australia"];
+   try{const parsed=JSON.parse(row?.markets||"[]");if(Array.isArray(parsed)&&parsed.length)markets=parsed.map(x=>String(x).trim()).filter(Boolean)}catch(error){console.log("FACTORY_MARKETS_INVALID_JSON",String(error?.message||error))}
+   const live=[];
+   if(row?.seasonal_enabled!==0){
+    for(const market of markets.slice(0,8)){
+     const code=geo[market];if(!code)continue;
+     try{
+      const r=await fetch("https://trends.google.com/trending/rss?geo="+code,{headers:{"user-agent":"DigitalNestFactory/1.0"},signal:AbortSignal.timeout(8000)});
+      if(!r.ok)continue;
+      for(const title of rssTitles(await r.text()).slice(0,20)){
+       const demand=score(title);if(demand<60)continue;
+       const seasonal=/christmas|holiday|halloween|thanksgiving|new year|back to school|easter|mother.?s day|father.?s day|valentine|wedding/i.test(title);
+       live.push({id:crypto.randomUUID(),title,product_type:kind(title),market,language:"English",occasion:seasonal?"Seasonal trend":"Trend signal",season_start:null,season_end:null,demand_score:demand,competition_score:50,opportunity_score:Math.round(demand*.65+17.5),source:"Google Trends RSS"});
+      }
+     }catch(e){console.log("Trend feed unavailable",market,e.message)}
+    }
+   }
+   ingested+=await bulkInsert(env,live);
+   const {results=[]}=await supabaseDB(env).prepare("SELECT * FROM factory_opportunities WHERE status='candidate' AND (season_end IS NULL OR season_end>=CURRENT_DATE::text) ORDER BY opportunity_score DESC,created_at DESC LIMIT 100").all();
+   return {opportunities:results,ingested,source:"Curated evergreen/seasonal ideas + Google Trends RSS when available"};
+ 
+ }catch(e){
+  console.log("FACTORY_OPPORTUNITY_REFRESH_ERROR",String(e?.stack||e));
+  return Response.json({error:e.message||"Opportunity refresh failed."},{status:500});
+ }
 }
