@@ -325,6 +325,16 @@ async function processSingle(context){
  }catch(e){
   if(activeJobId){
    try{
+    const committedProduct=await supabaseDB(env).prepare("SELECT slug,title,status FROM products WHERE factory_job_id=? LIMIT 1").bind(activeJobId).first();
+    if(committedProduct){
+     await supabaseDB(env).prepare("UPDATE factory_jobs SET status=?,stage='quality_passed',product_slug=?,error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(committedProduct.status==="draft"?"review":"published",committedProduct.slug,activeJobId).run();
+     await supabaseDB(env).prepare("DELETE FROM factory_retry_schedule WHERE job_id=?").bind(activeJobId).run();
+     return Response.json({ok:true,status:committedProduct.status==="draft"?"review":"published",slug:committedProduct.slug,title:committedProduct.title,recoveredAfterCommit:true,jobId:activeJobId});
+    }
+   }catch(recoveryError){console.log("FACTORY_POST_COMMIT_RECOVERY_ERROR",String(recoveryError?.message||recoveryError))}
+  }
+  if(activeJobId){
+   try{
     const message=String(e.message||e);
     const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|GEMINI_POOL_EXHAUSTED|CLOUDFLARE_AI_QUOTA_EXHAUSTED|neurons|daily allocation/i.test(message);
     const temporary=/GEMINI_TEMPORARY_UNAVAILABLE|GEMINI_503|Unexpected end of JSON input|SUPABASE_RPC_INVALID_JSON|not valid JSON|invalid JSON|AI draft format was invalid|temporarily unavailable|request timeout|network error/i.test(message);
