@@ -19,7 +19,9 @@ export default {
     let completed = 0;
     const failures = [];
     // Re-plan after each attempt so a failed opportunity can be replaced.
-    for (let attempt = 0; attempt < 9 && completed < 3; attempt++) {
+    // Run a bounded batch per cron tick. The queue lock in the Pages processor
+    // serializes this with the five-minute/minute scheduler.
+    for (let attempt = 0; attempt < 24 && completed < 8; attempt++) {
       const planRes = await fetch(base + "/api/factory-run", { method: "POST", headers, body: "{}" });
       const planText = await planRes.text();
       if (!planRes.ok) throw new Error("Planner failed " + planRes.status + ": " + planText.slice(0, 300));
@@ -51,6 +53,6 @@ export default {
     if (completed === 0 && failures.length) throw new Error("No products completed. " + failures.join(" | "));
   },
   async fetch() {
-    return new Response("DigitalNest scheduled factory. Runs sequentially every 15 minutes; daily safety cap applies.", { status: 200 });
+    return new Response("DigitalNest scheduled factory. Runs quota-driven sequential batches every five minutes.", { status: 200 });
   }
 };

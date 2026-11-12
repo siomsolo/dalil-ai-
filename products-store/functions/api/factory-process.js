@@ -264,14 +264,14 @@ async function processSingle(context){
    await supabaseDB(env).prepare("UPDATE factory_jobs SET status='queued',stage='queued',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE status='deferred' AND id IN (SELECT job_id FROM factory_retry_schedule WHERE next_retry_at<=CURRENT_TIMESTAMP)").run();
    await supabaseDB(env).prepare("DELETE FROM factory_retry_schedule WHERE next_retry_at<=CURRENT_TIMESTAMP").run();
   }
-  // Respect the configured daily production cap so the queue cannot burn through
-  // free AI allocations by launching an unbounded number of products in one day.
-  const dailyCap=Math.max(1,Number(settings.daily_product_cap||50));
+  // No arbitrary daily product cap: provider quotas and per-model limits are the
+  // production budget. Keep a high emergency guard against runaway loops only.
+  const dailyGuard=Math.max(1000,Number(settings.daily_product_cap||1000));
   const dailyCount=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM products WHERE status IN ('published','draft') AND created_at >= (date_trunc('day',CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')").first();
   const producedToday=Number(dailyCount?.n||0);
-  if(producedToday>=dailyCap){
+  if(producedToday>=dailyGuard){
    await supabaseDB(env).prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run();
-   return Response.json({ok:true,paused:true,reason:"daily_product_cap_reached",producedToday,dailyCap,message:"The configured daily production cap has been reached. Queued jobs are preserved and production resumes after the UTC day resets."});
+   return Response.json({ok:true,paused:true,reason:"emergency_daily_guard_reached",producedToday,dailyGuard,message:"Emergency safety guard reached. Provider quotas remain the normal production limiter."});
   }
   const body=await request.clone().json().catch(()=>({}));
   const requestedLanguage=body.language?String(body.language):null;

@@ -37,18 +37,103 @@ const expansionIdeas=[
  ["Household Subscription and Renewal Tracker","template","Personal Finance"],
  ["Family Emergency Preparedness Planner","workbook","Home"],
  ["Home Renovation Budget and Contractor Tracker","template","Home"],
- ["Travel Budget and Expense Organizer","template","Travel"]
+ ["Travel Budget and Expense Organizer","template","Travel"],
+ ["Small Business Sales Pipeline and Follow-up Planner","template","Sales"],
+ ["Service Business Client Intake and Discovery Workbook","workbook","Client Operations"],
+ ["Freelance Contract Scope and Change Request Kit","template","Freelance"],
+ ["Consultant Project Delivery Playbook","guide","Consulting"],
+ ["Small Business Monthly KPI Dashboard","template","Business Analytics"],
+ ["Retail Stock Reorder and Supplier Tracker","template","Retail"],
+ ["Business Expense Categorization Workbook","workbook","Finance"],
+ ["Invoice Follow-up and Accounts Receivable Kit","template","Finance"],
+ ["Product Launch Campaign Planner","workbook","Marketing"],
+ ["Customer Persona Research Workbook","workbook","Marketing"],
+ ["Local SEO Content and Review Planner","template","Marketing"],
+ ["Email Newsletter Editorial Calendar","template","Marketing"],
+ ["Social Media Content Repurposing System","template","Creator Business"],
+ ["YouTube Video Production Workflow Planner","workbook","Creator Business"],
+ ["Podcast Sponsorship Outreach Tracker","template","Creator Business"],
+ ["Digital Course Lesson Planning Workbook","workbook","Education"],
+ ["Online Course Assessment and Feedback Kit","template","Education"],
+ ["Student Assignment and Deadline Tracker","template","Education"],
+ ["Teacher Weekly Lesson Preparation Planner","workbook","Education"],
+ ["Language Learning Vocabulary and Practice Log","template","Education"],
+ ["Exam Study Session and Focus Tracker","template","Education"],
+ ["Career Skills Gap Analysis Workbook","workbook","Career"],
+ ["Professional Networking Follow-up Tracker","template","Career"],
+ ["Freelance Portfolio Project Case Study Guide","guide","Career"],
+ ["New Employee First 90 Days Planner","workbook","Management"],
+ ["Team Performance Review Preparation Kit","template","Management"],
+ ["One-to-One Manager Conversation Planner","template","Management"],
+ ["Remote Team Decision and Action Register","template","Remote Work"],
+ ["Meeting Agenda and Follow-up Action Pack","template","Remote Work"],
+ ["Job Candidate Interview Scorecard Kit","template","Recruitment"],
+ ["Recruitment Pipeline and Candidate Tracker","template","Recruitment"],
+ ["Small Nonprofit Grant Application Planner","workbook","Nonprofit"],
+ ["Volunteer Shift and Event Coordination Kit","template","Nonprofit"],
+ ["Community Fundraising Campaign Planner","workbook","Nonprofit"],
+ ["Household Bills and Payment Calendar","template","Personal Finance"],
+ ["Annual Savings Challenge Workbook","workbook","Personal Finance"],
+ ["Family Allowance and Chore Tracker","template","Family"],
+ ["Shared Household Responsibilities Planner","template","Family"],
+ ["Weekly Family Schedule and Activity Organizer","template","Family"],
+ ["Home Inventory and Insurance Record Kit","template","Home"],
+ ["Seasonal Home Maintenance Checklist","template","Home"],
+ ["Home Renovation Room-by-Room Planning Workbook","workbook","Home"],
+ ["Moving House Utility and Address Change Checklist","template","Home"],
+ ["Garden Planting and Harvest Journal","workbook","Gardening"],
+ ["Garden Watering and Maintenance Tracker","template","Gardening"],
+ ["Pet Medication and Care Schedule","template","Pet Care"],
+ ["Pet Training Progress Workbook","workbook","Pet Care"],
+ ["Wedding Guest RSVP and Seating Tracker","template","Events"],
+ ["Event Vendor Comparison and Budget Workbook","workbook","Events"],
+ ["Birthday Party Planning Checklist and Timeline","template","Events"],
+ ["Travel Packing and Pre-Trip Checklist","template","Travel"],
+ ["Family Vacation Daily Itinerary Workbook","workbook","Travel"],
+ ["Business Trip Expense and Meeting Planner","template","Travel"],
+ ["Personal Reading Goals and Progress Tracker","template","Personal Development"],
+ ["Daily Reflection and Gratitude Journal","workbook","Personal Development"],
+ ["Weekly Goal Review and Accountability Planner","workbook","Personal Development"],
+ ["Habit Building 30-Day Challenge Kit","template","Personal Development"],
+ ["Personal Project Milestone and Task Tracker","template","Productivity"],
+ ["Digital File Organization and Backup Checklist","guide","Productivity"],
+ ["Personal Knowledge Base Setup Workbook","workbook","Productivity"],
+ ["Meal Prep Batch Cooking and Shopping Planner","template","Food"],
+ ["Pantry Inventory and Expiry Date Tracker","template","Food"],
+ ["Family Recipe Collection and Meal Rotation Kit","workbook","Food"],
+ ["Fitness Training Session and Recovery Log","template","Fitness"],
+ ["Walking and Running Distance Progress Tracker","template","Fitness"],
+ ["Wellness Appointment and Routine Organizer","template","Wellness"],
+ ["Photography Session Shot List and Delivery Tracker","template","Creative Business"],
+ ["Freelance Design Revision and Approval Tracker","template","Creative Business"],
+ ["Handmade Product Order and Materials Tracker","template","Small Business"],
+ ["Ecommerce Returns and Customer Support Tracker","template","Ecommerce"],
+ ["Online Store Product Listing Optimization Guide","guide","Ecommerce"],
+ ["Subscription Renewal and Churn Prevention Planner","workbook","Business"],
+ ["Business Process Documentation Starter Kit","template","Operations"],
+ ["Standard Operating Procedure Writing Workbook","workbook","Operations"],
+ ["Business Continuity and Backup Plan Guide","guide","Operations"]
 ];
 const expansionMarkets=["United States","United Kingdom","Canada","Australia"];
 async function seedExpansionOpportunities(env){
  const rows=[];
+ const formats=[
+  {suffix:"Action Workbook",type:"workbook",occasion:"Implementation"},
+  {suffix:"Ready-to-Use Template Kit",type:"template",occasion:"Ready-to-use tools"},
+  {suffix:"Step-by-Step Guide",type:"guide",occasion:"Practical guidance"},
+  {suffix:"Progress and Results Tracker",type:"template",occasion:"Progress tracking"}
+ ];
  for(let i=0;i<expansionIdeas.length;i++){
-  const [base,type,occasion]=expansionIdeas[i];
+  const [base,baseType,occasion]=expansionIdeas[i];
   for(let m=0;m<expansionMarkets.length;m++){
    const market=expansionMarkets[m];
-   const localizedTitle=base+" - "+market+" Edition";
-   const demand=72+((i*7+m*5)%17),competition=38+((i*11+m*3)%24);
-   rows.push({id:crypto.randomUUID(),title:localizedTitle,product_type:type,market,language:"English",occasion,season_start:null,season_end:null,demand_score:demand,competition_score:competition,opportunity_score:Math.round(demand*.4+(100-competition)*.3+75*.3),source:"factory-evergreen-expansion"});
+   for(let v=0;v<formats.length;v++){
+    const format=formats[v];
+    const localizedTitle=v===0?base+" - "+market+" Edition":base+" - "+format.suffix+" - "+market+" Edition";
+    const type=v===0?baseType:format.type;
+    const demand=72+((i*7+m*5+v*3)%17),competition=38+((i*11+m*3+v*7)%24);
+    rows.push({id:crypto.randomUUID(),title:localizedTitle,product_type:type,market,language:"English",occasion:v===0?occasion:format.occasion+" · "+occasion,season_start:null,season_end:null,demand_score:demand,competition_score:competition,opportunity_score:Math.round(demand*.4+(100-competition)*.3+75*.3),source:"factory-evergreen-expansion"});
+   }
   }
  }
  return bulkInsert(env,rows);
