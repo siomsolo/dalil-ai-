@@ -15,7 +15,9 @@ export function constantTimeEqual(left, right) {
 
 export function isSameOriginMutation(request) {
   const origin = request.headers.get("origin");
-  if (!origin) return true;
+  // Server-to-server factory calls authenticate with a dedicated secret.
+  // Browser mutations must carry the exact same origin; absent Origin is denied.
+  if (!origin) return request.headers.has("x-factory-cron");
   try {
     return new URL(origin).origin === new URL(request.url).origin;
   } catch {
