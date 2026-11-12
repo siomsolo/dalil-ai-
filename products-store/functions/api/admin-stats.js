@@ -1,4 +1,4 @@
-import {adminAuthorized,mutationGuard} from "../_shared/security.js";
+import {adminAuthorized} from "../_shared/security.js";
 import {supabaseDB} from "../_shared/supabase-db.js";
 import {listPublishedSupabaseProducts} from "../_shared/supabase-products.js";
 export async function onRequestGet({request,env}) {
