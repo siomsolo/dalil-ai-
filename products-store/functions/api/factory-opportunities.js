@@ -98,6 +98,7 @@ export async function onRequestPost({request,env}){
    return {opportunities:results,ingested,source:"Curated evergreen/seasonal ideas + Google Trends RSS when available"};
  
  }catch(e){
+  await supabaseDB(env).prepare("UPDATE factory_discovery_state SET last_run_at='1970-01-01T00:00:00Z' WHERE id=1").run().catch(()=>{});
   console.log("FACTORY_OPPORTUNITY_REFRESH_ERROR",String(e?.stack||e));
   return Response.json({error:e.message||"Opportunity refresh failed."},{status:500});
  }
