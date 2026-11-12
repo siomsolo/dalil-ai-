@@ -34,7 +34,7 @@ export async function onRequestPost({request,env}){
   const pendingBefore=Number(pendingRow?.n||0);
   if(remaining===0)return Response.json({ok:true,queued:0,retried:0,pending:pendingBefore,skipped:0,queueTarget,reserved,remaining:0,queueTargetReached:true,batchLimit:100,message:"Rolling queue target is already filled. The scheduler will replenish it as jobs complete."});
   const reservedAfterRetry=reserved,remainingAfterRetry=remaining;
-  const {results:opportunities=[]}=await db.prepare("SELECT id,title,product_type,market,language,occasion FROM factory_opportunities WHERE status IN ('candidate','in_progress') AND (season_end IS NULL OR season_end>=CURRENT_DATE::text) ORDER BY opportunity_score DESC,created_at DESC LIMIT 1200").all();
+  const {results:opportunities=[]}=await db.prepare("SELECT id,title,product_type,market,language,occasion FROM factory_opportunities WHERE status IN ('candidate','in_progress') AND (season_end IS NULL OR season_end>=CURRENT_DATE::text) ORDER BY opportunity_score DESC,created_at DESC LIMIT 2000").all();
   const candidates=[];
   for(const opportunity of opportunities)for(const language of languages)candidates.push({id:crypto.randomUUID(),opportunity_id:opportunity.id,title:opportunity.title,product_type:opportunity.product_type,market:opportunity.market,language,occasion:opportunity.occasion});
   const batchLimit=Math.min(500,remainingAfterRetry);
