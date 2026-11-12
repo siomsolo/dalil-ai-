@@ -1,6 +1,6 @@
-import {adminAuthorized,cronAuthorized,mutationGuard} from "../_shared/security.js";
+import {adminAuthorized,mutationGuard} from "../_shared/security.js";
 import {supabaseDB} from "../_shared/supabase-db.js";
-function auth(request,env){return adminAuthorized(request,env)||cronAuthorized(request,env)}
+function auth(request,env){return adminAuthorized(request,env)}
 export async function onRequestPost({request,env}){
  const blocked=mutationGuard(request);if(blocked)return blocked;
  if(!auth(request,env))return Response.json({error:"Admin authentication failed."},{status:401});
