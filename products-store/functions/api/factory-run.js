@@ -1,14 +1,6 @@
 import {supabaseDB} from "../_shared/supabase-db.js";
-async function auth(request,env){
- const supplied=request.headers.get("x-factory-cron")||"";
- if((!!env.ADMIN_PASSWORD&&(request.headers.get("x-admin-token")||"")===env.ADMIN_PASSWORD)||
-  (!!env.FACTORY_CRON_SECRET&&supplied===env.FACTORY_CRON_SECRET))return true;
- if(!supplied)return false;
- try{
-  const row=await supabaseDB(env).prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();
-  return !!row?.token&&supplied===row.token;
- }catch(_){return false}
-}
+import {adminAuthorized,mutationGuard} from "../_shared/security.js";
+function auth(request,env){return adminAuthorized(request,env)}
 function parseLanguages(value){
  if(Array.isArray(value))return value.map(x=>String(x||"").trim()).filter(Boolean);
  if(typeof value!=="string"||!value.trim())return ["English"];
@@ -21,7 +13,8 @@ function parseLanguages(value){
  }
 }
 export async function onRequestPost({request,env}){
- if(!await auth(request,env))return Response.json({error:"Admin authentication failed."},{status:401});
+ const blocked=mutationGuard(request);if(blocked)return blocked;
+ if(!auth(request,env))return Response.json({error:"Admin authentication failed."},{status:401});
  try{
   const db=supabaseDB(env);
   const settings=await db.prepare("SELECT * FROM factory_settings WHERE id=1").first();
