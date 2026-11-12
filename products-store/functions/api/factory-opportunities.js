@@ -117,13 +117,23 @@ const expansionIdeas=[
 const expansionMarkets=["United States","United Kingdom","Canada","Australia"];
 async function seedExpansionOpportunities(env){
  const rows=[];
+ const formats=[
+  {suffix:"Action Workbook",type:"workbook",occasion:"Implementation"},
+  {suffix:"Ready-to-Use Template Kit",type:"template",occasion:"Ready-to-use tools"},
+  {suffix:"Step-by-Step Guide",type:"guide",occasion:"Practical guidance"},
+  {suffix:"Progress and Results Tracker",type:"template",occasion:"Progress tracking"}
+ ];
  for(let i=0;i<expansionIdeas.length;i++){
-  const [base,type,occasion]=expansionIdeas[i];
+  const [base,baseType,occasion]=expansionIdeas[i];
   for(let m=0;m<expansionMarkets.length;m++){
    const market=expansionMarkets[m];
-   const localizedTitle=base+" - "+market+" Edition";
-   const demand=72+((i*7+m*5)%17),competition=38+((i*11+m*3)%24);
-   rows.push({id:crypto.randomUUID(),title:localizedTitle,product_type:type,market,language:"English",occasion,season_start:null,season_end:null,demand_score:demand,competition_score:competition,opportunity_score:Math.round(demand*.4+(100-competition)*.3+75*.3),source:"factory-evergreen-expansion"});
+   for(let v=0;v<formats.length;v++){
+    const format=formats[v];
+    const localizedTitle=v===0?base+" - "+market+" Edition":base+" - "+format.suffix+" - "+market+" Edition";
+    const type=v===0?baseType:format.type;
+    const demand=72+((i*7+m*5+v*3)%17),competition=38+((i*11+m*3+v*7)%24);
+    rows.push({id:crypto.randomUUID(),title:localizedTitle,product_type:type,market,language:"English",occasion:v===0?occasion:format.occasion+" · "+occasion,season_start:null,season_end:null,demand_score:demand,competition_score:competition,opportunity_score:Math.round(demand*.4+(100-competition)*.3+75*.3),source:"factory-evergreen-expansion"});
+   }
   }
  }
  return bulkInsert(env,rows);
