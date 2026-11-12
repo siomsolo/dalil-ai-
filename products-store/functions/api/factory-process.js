@@ -256,7 +256,7 @@ async function processSingle(context){
   // Respect the configured daily production cap so the queue cannot burn through
   // free AI allocations by launching an unbounded number of products in one day.
   const dailyCap=Math.max(1,Number(settings.daily_product_cap||50));
-  const dailyCount=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status IN ('published','review') AND updated_at>=date_trunc('day',CURRENT_TIMESTAMP)").first();
+  const dailyCount=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM products WHERE status IN ('published','draft') AND created_at >= (date_trunc('day',CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')").first();
   const producedToday=Number(dailyCount?.n||0);
   if(producedToday>=dailyCap){
    await supabaseDB(env).prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run();
@@ -273,6 +273,14 @@ async function processSingle(context){
   const wordCount=String(data.content||"").trim().split(/\s+/).filter(Boolean).length;
   const keywords=Array.isArray(data.keywords)?data.keywords.join(", "):String(data.keywords||"");
   if(!data.title||!data.description||keywords.split(",").filter(x=>x.trim()).length<5||wordCount<500)throw new Error("Quality check failed: content must contain at least 500 words and complete product details.");
+  const normalizedTitle=String(data.title).normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]/g,"");
+  const duplicate=await supabaseDB(env).prepare("SELECT id,slug,title FROM products WHERE status IN ('published','draft') AND lower(language)=lower(?) AND lower(market)=lower(?) AND lower(regexp_replace(title,'[^a-zA-Z0-9]','','g'))=? ORDER BY created_at ASC LIMIT 1").bind(languageName(job.language),job.market,normalizedTitle).first();
+  if(duplicate){
+   await supabaseDB(env).prepare("UPDATE factory_jobs SET status='published',stage='duplicate_suppressed',product_slug=?,error='Equivalent product already exists; generation safely suppressed.',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(duplicate.slug,job.id).run();
+   await supabaseDB(env).prepare("DELETE FROM factory_retry_schedule WHERE job_id=?").bind(job.id).run();
+   await supabaseDB(env).prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run();
+   return Response.json({ok:true,status:'published',duplicateSuppressed:true,slug:duplicate.slug,title:duplicate.title,message:'Equivalent product already exists; no duplicate was created.'});
+  }
   await supabaseDB(env).prepare("UPDATE factory_jobs SET stage='creating_pdf',updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(job.id).run();
   const bytes=makePdf(data.title,data.content);
   if(bytes.length<2500||new TextDecoder().decode(bytes.slice(0,8))!=="%PDF-1.4")throw new Error("PDF validation failed.");
@@ -289,7 +297,7 @@ async function processSingle(context){
   }
   const imageUrl="/media/"+cover.imageKey;
   const status=settings.auto_publish?"published":"draft";
-  const productRecord={id,slug,title:String(data.title).trim(),description:String(data.description).trim(),category:job.product_type,language:languageName(job.language),market:job.market,occasion:job.occasion,keywords,price:5,file_key:key,file_name:"digitalnest-generated.pdf",file_type:"application/pdf",image_key:cover.imageKey,image_url:imageUrl,status};
+  const productRecord={id,slug,title:String(data.title).trim(),description:String(data.description).trim(),category:job.product_type,language:languageName(job.language),market:job.market,occasion:job.occasion,keywords,price:5,file_key:key,file_name:"digitalnest-generated.pdf",file_type:"application/pdf",image_key:cover.imageKey,image_url:imageUrl,status,factory_job_id:job.id};
   const {insertSupabaseProduct}=await import("../_shared/supabase-products.js");
   await insertSupabaseProduct(env,productRecord);
   if(status==="published"){const {notifyIndexNow}=await import("../_shared/indexnow.js");notifyIndexNow(context,slug)}
@@ -306,7 +314,7 @@ async function processSingle(context){
   await supabaseDB(env).prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run();
   const nextCount=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
   if(Number(nextCount?.n||0)>0){const internalSecret=env.FACTORY_CRON_SECRET||env.ADMIN_PASSWORD;if(internalSecret){const nextUrl=new URL(request.url);context.waitUntil(fetch(nextUrl.toString(),{method:"POST",headers:{"content-type":"application/json",[env.FACTORY_CRON_SECRET?"x-factory-cron":"x-admin-token"]:internalSecret},body:"{}"}).then(r=>{if(!r.ok)console.log("FACTORY_QUEUE_CHAIN_STATUS",r.status)}).catch(e=>console.log("FACTORY_QUEUE_CHAIN_ERROR",String(e))))}}
-  return Response.json({ok:true,status,slug,title:data.title,wordCount,geminiKeyUsed:data._gemini_key_used||null,coverGenerated:cover.generated,coverFallback:cover.fallback,coverProvider:"Cloudflare Workers AI",coverReason:cover.reason||null});
+  return Response.json({ok:true,status,slug,title:data.title,wordCount,jobId:job.id,geminiKeyUsed:data._gemini_key_used||null,coverGenerated:cover.generated,coverFallback:cover.fallback,coverProvider:"Cloudflare Workers AI",coverReason:cover.reason||null});
  }catch(e){
   if(activeJobId){
    try{
@@ -323,8 +331,9 @@ async function processSingle(context){
     if(retryAllowed){
      if(quota){
       const states=await supabaseDB(env).prepare("SELECT blocked_until,last_error,updated_at FROM factory_provider_state WHERE provider_key LIKE 'GEMINI_%_API_KEY' AND state='exhausted'").all();
-      const dates=(states.results||[]).map(s=>s.blocked_until||retryAtFromMessage(s.last_error,6*60*60*1000)).filter(Boolean).sort();
-      nextAt=dates[0]||retryAtFromMessage(message,6*60*60*1000);
+      const dates=(states.results||[]).map(s=>s.blocked_until||retryAtFromMessage(s.last_error,6*60*60*1000)).filter(Boolean).sort((a,b)=>Date.parse(b)-Date.parse(a));
+      const imageState=await supabaseDB(env).prepare("SELECT blocked_until FROM factory_provider_state WHERE provider_key='CLOUDFLARE_WORKERS_AI_TEXT' AND state='exhausted'").first();
+      nextAt=dates[0]||imageState?.blocked_until||retryAtFromMessage(message,6*60*60*1000);
      }else{
       const delays=[120];
       nextAt=new Date(Date.now()+delays[0]*1000).toISOString();
