@@ -42,8 +42,12 @@ export default {
         }
         continue;
       }
+      if (result.paused) {
+        console.log("Factory production paused; queued jobs are preserved.", {reason:result.reason || "provider_cooldown",resumeAt:result.resumeAt || null,queued:plan.pending || null});
+        break;
+      }
       if (!result.slug) {
-        console.log("No queued factory jobs remain.");
+        console.log(result.empty ? "No eligible queued factory jobs remain." : "Factory processor returned without a product slug.", {result});
         break;
       }
       if(!result.duplicateSuppressed) completed += 1;
