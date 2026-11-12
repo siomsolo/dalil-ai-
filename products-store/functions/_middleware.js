@@ -5,7 +5,7 @@ function harden(response) {
   headers.set("X-Frame-Options", "SAMEORIGIN");
   headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
   headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
-  headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  headers.set("Strict-Transport-Security", "max-age=31536000");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
