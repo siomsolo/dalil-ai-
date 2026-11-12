@@ -1,3 +1,13 @@
+function harden(response) {
+  const headers = new Headers(response.headers);
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Frame-Options", "SAMEORIGIN");
+  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  headers.set("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  headers.set("Strict-Transport-Security", "max-age=31536000");
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
 import {supabaseDB} from "./_shared/supabase-db.js";
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
   "&": "&amp;",
@@ -37,10 +47,10 @@ export async function onRequest(context) {
   const response = await context.next();
   const url = new URL(context.request.url);
 
-  if (url.pathname !== "/" || !response.ok) return response;
+  if (url.pathname !== "/" || !response.ok) return harden(response);
 
   const contentType = response.headers.get("content-type") || "";
-  if (!contentType.includes("text/html")) return response;
+  if (!contentType.includes("text/html")) return harden(response);
 
   const fallback = response.clone();
 
@@ -49,13 +59,13 @@ export async function onRequest(context) {
       "SELECT slug,title,description,category,language,price,image_url FROM products WHERE status='published' ORDER BY created_at DESC LIMIT 500"
     ).all();
 
-    if (!results.length) return response;
+    if (!results.length) return harden(response);
 
     const html = await response.text();
     const cards = results.map(renderProduct).join("\n");
     const markerPattern = /<!-- PRODUCTS_SSR_START -->[^]*?<!-- PRODUCTS_SSR_END -->/;
 
-    if (!markerPattern.test(html)) return fallback;
+    if (!markerPattern.test(html)) return harden(fallback);
 
     const updated = html.replace(
       markerPattern,
@@ -65,12 +75,12 @@ export async function onRequest(context) {
     const headers = new Headers(response.headers);
     headers.delete("content-length");
     headers.set("cache-control", "public, max-age=60");
-    return new Response(updated, {
+    return harden(new Response(updated, {
       status: response.status,
       statusText: response.statusText,
       headers
-    });
+    }));
   } catch (error) {
-    return fallback;
+    return harden(fallback);
   }
 }

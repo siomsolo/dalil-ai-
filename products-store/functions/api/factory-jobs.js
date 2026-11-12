@@ -1,3 +1,4 @@
 import {supabaseDB} from "../_shared/supabase-db.js";
-function auth(request,env){return !!env.ADMIN_PASSWORD&&(request.headers.get("x-admin-token")||"")===env.ADMIN_PASSWORD}
+import {adminAuthorized} from "../_shared/security.js";
+function auth(request,env){return adminAuthorized(request,env)}
 export async function onRequestGet({request,env}){if(!auth(request,env))return Response.json({error:"Admin authentication failed."},{status:401});try{const {results=[]}=await supabaseDB(env).prepare("SELECT j.*,o.title AS opportunity_title FROM factory_jobs j LEFT JOIN factory_opportunities o ON o.id=j.opportunity_id ORDER BY j.created_at DESC LIMIT 100").all();return Response.json({jobs:results})}catch(e){return Response.json({error:e.message},{status:500})}}

@@ -1,6 +1,8 @@
+import {adminAuthorized,mutationGuard} from "../_shared/security.js";
 import {supabaseDB} from "../_shared/supabase-db.js";
-function auth(request,env){return (!!env.ADMIN_PASSWORD&&(request.headers.get("x-admin-token")||"")===env.ADMIN_PASSWORD)|| (!!env.FACTORY_CRON_SECRET&&(request.headers.get("x-factory-cron")||"")===env.FACTORY_CRON_SECRET)}
+function auth(request,env){return adminAuthorized(request,env)}
 export async function onRequestPost({request,env}){
+ const blocked=mutationGuard(request);if(blocked)return blocked;
  if(!auth(request,env))return Response.json({error:"Admin authentication failed."},{status:401});
  try{
   const s=await supabaseDB(env).prepare("SELECT enabled FROM factory_settings WHERE id=1").first();

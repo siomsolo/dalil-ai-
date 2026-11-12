@@ -1,8 +1,8 @@
+import {adminAuthorized} from "../_shared/security.js";
 import {supabaseDB} from "../_shared/supabase-db.js";
 import {listPublishedSupabaseProducts} from "../_shared/supabase-products.js";
 export async function onRequestGet({request,env}) {
-  const token=request.headers.get("x-admin-token")||"";
-  if(!env.ADMIN_PASSWORD||token!==env.ADMIN_PASSWORD) return Response.json({error:"Admin authentication failed."},{status:401});
+  if(!adminAuthorized(request,env)) return Response.json({error:"Admin authentication failed."},{status:401});
   try {
     const {results=[]}=await supabaseDB(env).prepare(`
       SELECT p.slug,p.title,p.price,p.status,p.created_at,

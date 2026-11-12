@@ -1,5 +1,6 @@
 import {supabaseDB} from "../_shared/supabase-db.js";
-async function auth(request,env){const h=request.headers;const admin=(!!env.ADMIN_PASSWORD&&(h.get("x-admin-token")||"")===env.ADMIN_PASSWORD);const configuredCron=(!!env.FACTORY_CRON_SECRET&&(h.get("x-factory-cron")||"")===env.FACTORY_CRON_SECRET);if(admin||configuredCron)return true;const supplied=h.get("x-factory-cron")||"";if(!supplied)return false;try{const row=await supabaseDB(env).prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();return !!row?.token&&supplied===row.token}catch(_){return false}}
+import {adminAuthorized,cronAuthorized,constantTimeEqual,mutationGuard} from "../_shared/security.js";
+async function auth(request,env){if(adminAuthorized(request,env)||cronAuthorized(request,env))return true;const supplied=request.headers.get("x-factory-cron")||"";if(!supplied)return false;try{const row=await supabaseDB(env).prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();return constantTimeEqual(supplied,row?.token||"")}catch(_){return false}}
 function parseDraft(raw){
  if(raw&&typeof raw==="object"){
   const value=raw.response??raw.output_text??raw;
@@ -381,5 +382,6 @@ async function processSingle(context){
  }
 }
 export async function onRequestPost(context){
+ const blocked=mutationGuard(context.request);if(blocked)return blocked;
  return processSingle(context);
 }
