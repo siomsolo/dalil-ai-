@@ -29,15 +29,15 @@ export async function onRequestPost({request,env}){
   const languages=[...new Set(parseLanguages(settings.languages))];
   if(!languages.length)return Response.json({error:"Select at least one production language."},{status:409});
   const usage=await db.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status IN ('queued','running','deferred')").first();
-  const reserved=Number(usage?.n||0),queueTarget=Math.max(3,Math.min(100,Number(settings.daily_product_cap||3)*2)),remaining=Math.max(0,queueTarget-reserved);
+  const reserved=Number(usage?.n||0),queueTarget=Math.max(500,Math.min(5000,Number(settings.queue_target||5000))),remaining=Math.max(0,queueTarget-reserved);
   const pendingRow=await db.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
   const pendingBefore=Number(pendingRow?.n||0);
   if(remaining===0)return Response.json({ok:true,queued:0,retried:0,pending:pendingBefore,skipped:0,queueTarget,reserved,remaining:0,queueTargetReached:true,batchLimit:100,message:"Rolling queue target is already filled. The scheduler will replenish it as jobs complete."});
   const reservedAfterRetry=reserved,remainingAfterRetry=remaining;
-  const {results:opportunities=[]}=await db.prepare("SELECT id,title,product_type,market,language,occasion FROM factory_opportunities WHERE status IN ('candidate','in_progress') AND (season_end IS NULL OR season_end>=CURRENT_DATE::text) ORDER BY opportunity_score DESC,created_at DESC LIMIT 150").all();
+  const {results:opportunities=[]}=await db.prepare("SELECT id,title,product_type,market,language,occasion FROM factory_opportunities WHERE status IN ('candidate','in_progress') AND (season_end IS NULL OR season_end>=CURRENT_DATE::text) ORDER BY opportunity_score DESC,created_at DESC LIMIT 1200").all();
   const candidates=[];
   for(const opportunity of opportunities)for(const language of languages)candidates.push({id:crypto.randomUUID(),opportunity_id:opportunity.id,title:opportunity.title,product_type:opportunity.product_type,market:opportunity.market,language,occasion:opportunity.occasion});
-  const batchLimit=Math.min(100,remainingAfterRetry);
+  const batchLimit=Math.min(500,remainingAfterRetry);
   let queued=0;
   if(candidates.length&&batchLimit>0){
    const payload=JSON.stringify(candidates);
