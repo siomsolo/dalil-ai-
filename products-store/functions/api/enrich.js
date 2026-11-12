@@ -1,3 +1,4 @@
+import {adminAuthorized,mutationGuard} from "../_shared/security.js";
 function extractJson(raw){
  const source=String(raw??"").replace(/^\uFEFF/,"").trim();
  const starts=[];
@@ -49,8 +50,8 @@ function extractModelText(result){
  throw new Error("The AI model returned no readable text content.");
 }
 export async function onRequestPost({request,env}){
- const token=request.headers.get("x-admin-token")||"";
- if(!env.ADMIN_PASSWORD||token!==env.ADMIN_PASSWORD)return Response.json({error:"Admin authentication failed."},{status:401});
+ const blocked=mutationGuard(request);if(blocked)return blocked;
+ if(!adminAuthorized(request,env))return Response.json({error:"Admin authentication failed."},{status:401});
  if(!env.AI)return Response.json({error:"Cloudflare Workers AI binding (AI) is not configured yet."},{status:503});
  try{
   const {filename="",text=""}=await request.json();
