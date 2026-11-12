@@ -269,6 +269,13 @@ async function processSingle(context){
   activeJobId=job.id;
   const claim=await supabaseDB(env).prepare("UPDATE factory_jobs SET status='running',stage='drafting',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='queued'").bind(job.id).run();
   if(!claim.meta?.changes)return Response.json({ok:false,error:"Job was claimed by another worker; retry queue status."},{status:409});
+  const existingJobProduct=await supabaseDB(env).prepare("SELECT id,slug,title,status FROM products WHERE factory_job_id=? LIMIT 1").bind(job.id).first();
+  if(existingJobProduct){
+   await supabaseDB(env).prepare("UPDATE factory_jobs SET status=?,stage='quality_passed',product_slug=?,error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(existingJobProduct.status==="draft"?"review":"published",existingJobProduct.slug,job.id).run();
+   await supabaseDB(env).prepare("DELETE FROM factory_retry_schedule WHERE job_id=?").bind(job.id).run();
+   await supabaseDB(env).prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run();
+   return Response.json({ok:true,status:existingJobProduct.status==="draft"?"review":"published",slug:existingJobProduct.slug,title:existingJobProduct.title,reusedExistingProduct:true,jobId:job.id});
+  }
   const data=await generateDraft(env,job);
   const wordCount=String(data.content||"").trim().split(/\s+/).filter(Boolean).length;
   const keywords=Array.isArray(data.keywords)?data.keywords.join(", "):String(data.keywords||"");
