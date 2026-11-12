@@ -353,8 +353,8 @@ async function processSingle(context){
    }catch(_){}
   }
   const quota=/GEMINI_429|RESOURCE_EXHAUSTED|quota|rate.?limit|MISSING_GEMINI_KEY|GEMINI_POOL_EXHAUSTED|CLOUDFLARE_AI_QUOTA_EXHAUSTED|neurons|daily allocation/i.test(String(e.message||e));
-  const temporary=/GEMINI_TEMPORARY_UNAVAILABLE/i.test(String(e.message||e));
-  return Response.json({error:e.message||"Factory processing failed.",quotaExhausted:quota,temporaryUnavailable:temporary,jobKeptQueued:temporary},{status:quota?429:temporary?503:502});
+  const temporary=/GEMINI_TEMPORARY_UNAVAILABLE|GEMINI_503|Unexpected end of JSON input|SUPABASE_RPC_INVALID_JSON|not valid JSON|invalid JSON|AI draft format was invalid|temporarily unavailable|request timeout|network error|FACTORY_DRAFT_EXPANSION_FAILED/i.test(String(e.message||e));
+  return Response.json({error:e.message||"Factory processing failed.",quotaExhausted:quota,temporaryUnavailable:temporary,jobDeferred:quota||temporary},{status:quota?429:temporary?503:502});
  }finally{
   await supabaseDB(env).prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run().catch(()=>{});
  }
