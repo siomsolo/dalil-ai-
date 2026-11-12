@@ -1,13 +1,15 @@
 import {supabaseDB} from "../_shared/supabase-db.js";
+import {constantTimeEqual,mutationGuard} from "../_shared/security.js";
 async function auth(request,env){
  const supplied=request.headers.get("x-factory-cron")||"";
  if(!supplied)return false;
- if(env.FACTORY_CRON_SECRET && supplied===env.FACTORY_CRON_SECRET)return true;
+ if(constantTimeEqual(supplied,env.FACTORY_CRON_SECRET||""))return true;
  await supabaseDB(env).prepare("CREATE TABLE IF NOT EXISTS factory_scheduler_auth (id INTEGER PRIMARY KEY CHECK(id=1),token TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)").run();
  const row=await supabaseDB(env).prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();
- return !!row?.token&&supplied===row.token;
+ return constantTimeEqual(supplied,row?.token||"");
 }
 export async function onRequestPost({request,env}){
+ const blocked=mutationGuard(request);if(blocked)return blocked;
  try{
   if(!await auth(request,env))return Response.json({error:"Cron authentication failed."},{status:401});
   await supabaseDB(env).prepare("CREATE TABLE IF NOT EXISTS factory_retry_schedule (job_id TEXT PRIMARY KEY,attempts INTEGER NOT NULL DEFAULT 0,next_retry_at TEXT NOT NULL,reason TEXT,updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)").run();
