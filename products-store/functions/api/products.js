@@ -33,7 +33,7 @@ export async function onRequestPost(context){
   const blocked=mutationGuard(request);if(blocked)return blocked;
   if(!adminAuthorized(request,env))return Response.json({error:"Admin authentication failed. Configure ADMIN_PASSWORD in Cloudflare."},{status:401,headers:{"Cache-Control":"no-store"}});
   if(!env.FILES)return Response.json({error:"File storage is not connected yet. Enable R2 and bind it as FILES."},{status:503});
-  let fileKey=null,imageKey=null;
+  let fileKey=null,imageKey=null,saved=false;
   try{
     const form=await request.formData();
     const file=form.get("file"),image=form.get("image");
@@ -62,13 +62,13 @@ export async function onRequestPost(context){
     }
     const data={id,slug,title,description,category:String(form.get("category")||"Digital resource").slice(0,100),language:String(form.get("language")||"English").slice(0,40),market:String(form.get("market")||"Global").slice(0,80),occasion:String(form.get("occasion")||"Evergreen").slice(0,80),keywords:String(form.get("keywords")||"").slice(0,2000),price:5,file_key:fileKey,file_name:safeName,file_type:file.type||"application/octet-stream",image_key:imageKey,image_url:imageUrl,status:"published"};
     await insertSupabaseProduct(env,data);
+    saved=true;
     try{await caches.default.delete(new Request(new URL("/api/products",request.url).toString(),{method:"GET"}));}catch(e){}
-    const {notifyIndexNow}=await import("../_shared/indexnow.js");
-    notifyIndexNow(context,data.slug);
+    try{const {notifyIndexNow}=await import("../_shared/indexnow.js");notifyIndexNow(context,data.slug);}catch(notifyError){console.log("INDEXNOW_NOTIFY_SKIPPED",String(notifyError?.message||notifyError));}
     return Response.json({ok:true,product:{slug,title,price:data.price}},{status:201});
   }catch(e){
-    if(fileKey)await env.FILES.delete(fileKey).catch(()=>{});
-    if(imageKey)await env.FILES.delete(imageKey).catch(()=>{});
+    if(!saved){if(fileKey)await env.FILES.delete(fileKey).catch(()=>{});
+    if(imageKey)await env.FILES.delete(imageKey).catch(()=>{});}
     console.log("PRODUCT_UPLOAD_FAILED",JSON.stringify({message:String(e?.message||e)}));
     return Response.json({error:"Could not save product. Please verify the product details and try again."},{status:500});
   }
