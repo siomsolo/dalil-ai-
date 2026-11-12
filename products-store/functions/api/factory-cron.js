@@ -48,10 +48,20 @@ export async function onRequestPost({request,env}){
   if(Number(queued?.n||0)===0)return Response.json({ok:true,released,queued:0,message:"No due jobs."});
   if(lock?.lock_token&&lockUntil>Date.now())return Response.json({ok:true,released,queued:Number(queued.n),busy:true,message:"A production task still owns the queue lease."});
   const url=new URL(request.url);url.pathname="/api/factory-process";url.search="";
-  const result=await fetch(url.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":schedulerAuth.token},body:"{}"});
-  const body=await result.json().catch(()=>({}));
-  console.log("FACTORY_CRON_PROCESS_RESULT",JSON.stringify({status:result.status,released,queued:Number(queued.n),result:body}));
-  return Response.json({ok:result.ok,released,queued:Number(queued.n),process_status:result.status,result:body},{status:result.ok?200:502});
+  const completed=[];
+  let lastResult=null,lastStatus=200;
+  // Ten sequential attempts per minute-level scheduler tick. Each attempt uses
+  // the shared DB queue lock and stops immediately on provider cooldown/errors.
+  for(let attempt=0;attempt<10;attempt++){
+   const result=await fetch(url.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":schedulerAuth.token},body:"{}"});
+   const body=await result.json().catch(()=>({}));
+   lastResult=body;lastStatus=result.status;
+   console.log("FACTORY_CRON_PROCESS_RESULT",JSON.stringify({attempt:attempt+1,status:result.status,released,queued:Number(queued.n),result:body}));
+   if(!result.ok||body.ok===false){break;}
+   if(body.paused||body.empty||!body.slug){break;}
+   completed.push({slug:body.slug,title:body.title,jobId:body.jobId});
+  }
+  return Response.json({ok:lastStatus<400,released,queued:Number(queued.n),completed:completed.length,products:completed,last_status:lastStatus,last_result:lastResult},{status:lastStatus<400?200:502});
  }catch(e){
   console.log("FACTORY_CRON_ERROR",String(e?.stack||e));
   return Response.json({error:String(e?.message||e)},{status:500});
