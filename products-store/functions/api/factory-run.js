@@ -29,7 +29,7 @@ export async function onRequestPost({request,env}){
   const languages=[...new Set(parseLanguages(settings.languages))];
   if(!languages.length)return Response.json({error:"Select at least one production language."},{status:409});
   const usage=await db.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status IN ('queued','running','deferred')").first();
-  const reserved=Number(usage?.n||0),queueTarget=500,remaining=Math.max(0,queueTarget-reserved);
+  const reserved=Number(usage?.n||0),queueTarget=Math.max(3,Math.min(100,Number(settings.daily_product_cap||3)*2)),remaining=Math.max(0,queueTarget-reserved);
   const pendingRow=await db.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
   const pendingBefore=Number(pendingRow?.n||0);
   if(remaining===0)return Response.json({ok:true,queued:0,retried:0,pending:pendingBefore,skipped:0,queueTarget,reserved,remaining:0,queueTargetReached:true,batchLimit:100,message:"Rolling queue target is already filled. The scheduler will replenish it as jobs complete."});
@@ -41,7 +41,7 @@ export async function onRequestPost({request,env}){
   let queued=0;
   if(candidates.length&&batchLimit>0){
    const payload=JSON.stringify(candidates);
-   const inserted=await db.prepare("INSERT INTO factory_jobs (id,opportunity_id,product_type,market,language,occasion,status,stage,estimated_neurons) SELECT x.id,x.opportunity_id,x.product_type,x.market,x.language,x.occasion,'queued','queued',0 FROM jsonb_to_recordset(?::jsonb) AS x(id text,opportunity_id text,product_type text,market text,language text,occasion text) WHERE NOT EXISTS (SELECT 1 FROM factory_jobs j WHERE j.opportunity_id=x.opportunity_id AND lower(j.language)=lower(x.language)) ORDER BY x.opportunity_id,x.language LIMIT ?").bind(JSON.stringify(candidates),batchLimit).run();
+   const inserted=await db.prepare("INSERT INTO factory_jobs (id,opportunity_id,product_type,market,language,occasion,status,stage,estimated_neurons) SELECT x.id,x.opportunity_id,x.product_type,x.market,x.language,x.occasion,'queued','queued',0 FROM jsonb_to_recordset(?::jsonb) AS x(id text,opportunity_id text,product_type text,market text,language text,occasion text) WHERE NOT EXISTS (SELECT 1 FROM factory_jobs j WHERE j.opportunity_id=x.opportunity_id AND lower(j.language)=lower(x.language)) ORDER BY x.opportunity_id,x.language LIMIT ? ON CONFLICT DO NOTHING").bind(JSON.stringify(candidates),batchLimit).run();
    queued=Number(inserted.meta?.changes||0);
   }
   const pending=await db.prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
