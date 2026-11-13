@@ -1,12 +1,7 @@
 import {supabaseDB} from "../_shared/supabase-db.js";
 import {constantTimeEqual,mutationGuard} from "../_shared/security.js";
 async function auth(request,env){
- const supplied=request.headers.get("x-factory-cron")||"";
- if(!supplied)return false;
- if(constantTimeEqual(supplied,env.FACTORY_CRON_SECRET||""))return true;
- await supabaseDB(env).prepare("CREATE TABLE IF NOT EXISTS factory_scheduler_auth (id INTEGER PRIMARY KEY CHECK(id=1),token TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)").run();
- const row=await supabaseDB(env).prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();
- return constantTimeEqual(supplied,row?.token||"");
+ return constantTimeEqual(request.headers.get("x-factory-cron")||"",env.FACTORY_CRON_SECRET||"");
 }
 export async function onRequestPost({request,env}){
  const blocked=mutationGuard(request);if(blocked)return blocked;
@@ -24,18 +19,15 @@ export async function onRequestPost({request,env}){
    await supabaseDB(env).prepare("DELETE FROM factory_retry_schedule WHERE job_id=?").bind(item.job_id).run();
   }
   await supabaseDB(env).prepare("UPDATE factory_jobs SET status='queued',stage='queued',error='Recovered automatically after a stale running lease.',updated_at=CURRENT_TIMESTAMP WHERE status='running' AND updated_at<datetime('now','-10 minutes')").run();
-  // Keep the scheduler's canonical token stable. The five-minute scheduler still
-  // authenticates with its legacy D1 token; the fifteen-minute Worker may use the
-  // separate Pages FACTORY_CRON_SECRET. Never overwrite one credential with the other.
-  const schedulerAuth=await supabaseDB(env).prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();
-  if(!schedulerAuth?.token)return Response.json({error:"Factory scheduler token is missing from Supabase. Restore the scheduler token in factory_scheduler_auth."},{status:503});
+  const schedulerSecret=env.FACTORY_CRON_SECRET||"";
+  if(!schedulerSecret)return Response.json({error:"FACTORY_CRON_SECRET is missing from Pages production."},{status:503});
   const opportunitiesUrl=new URL(request.url);opportunitiesUrl.pathname="/api/factory-opportunities";opportunitiesUrl.search="";
-  const opportunitiesResponse=await fetch(opportunitiesUrl.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":schedulerAuth.token},body:"{}"});
+  const opportunitiesResponse=await fetch(opportunitiesUrl.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":schedulerSecret},body:"{}"});
   const opportunitiesBody=await opportunitiesResponse.json().catch(()=>({}));
   if(!opportunitiesResponse.ok){console.log("FACTORY_CRON_OPPORTUNITY_ERROR",JSON.stringify({status:opportunitiesResponse.status,body:opportunitiesBody}));return Response.json({error:"Factory opportunity refresh failed.",opportunities:opportunitiesBody},{status:502});}
   console.log("FACTORY_CRON_OPPORTUNITIES",JSON.stringify({count:opportunitiesBody.opportunities?.length||0,ingested:opportunitiesBody.ingested||0}));
   const planUrl=new URL(request.url);planUrl.pathname="/api/factory-run";planUrl.search="";
-  const planResponse=await fetch(planUrl.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":schedulerAuth.token},body:"{}"});
+  const planResponse=await fetch(planUrl.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":schedulerSecret},body:"{}"});
   const planBody=await planResponse.json().catch(()=>({}));
   if(!planResponse.ok){console.log("FACTORY_CRON_PLANNER_ERROR",JSON.stringify({status:planResponse.status,body:planBody}));return Response.json({error:"Factory queue planner failed.",planner:planBody},{status:502});}
   console.log("FACTORY_CRON_PLAN",JSON.stringify(planBody));
@@ -55,7 +47,7 @@ export async function onRequestPost({request,env}){
   // Ten sequential attempts per minute-level scheduler tick. Each attempt uses
   // the shared DB queue lock and stops immediately on provider cooldown/errors.
   for(let attempt=0;attempt<10;attempt++){
-   const result=await fetch(url.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":schedulerAuth.token},body:"{}"});
+   const result=await fetch(url.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":schedulerSecret},body:"{}"});
    const body=await result.json().catch(()=>({}));
    lastResult=body;lastStatus=result.status;
    console.log("FACTORY_CRON_PROCESS_RESULT",JSON.stringify({attempt:attempt+1,status:result.status,released,queued:Number(queued.n),result:body}));
