@@ -1,6 +1,6 @@
 import {supabaseDB} from "../_shared/supabase-db.js";
-import {adminAuthorized,mutationGuard} from "../_shared/security.js";
-function auth(request,env){return adminAuthorized(request,env)}
+import {adminAuthorized,cronAuthorized,mutationGuard} from "../_shared/security.js";
+function auth(request,env){return adminAuthorized(request,env)||cronAuthorized(request,env)}
 function parseLanguages(value){
  if(Array.isArray(value))return value.map(x=>String(x||"").trim()).filter(Boolean);
  if(typeof value!=="string"||!value.trim())return ["English"];
