@@ -1,5 +1,5 @@
 import {supabaseDB} from "../_shared/supabase-db.js";
-import {runAiLogged,logAiUsage,claimDailyAiSlot} from "../_shared/ai-usage.js";
+import {runAiLogged,logAiUsage} from "../_shared/ai-usage.js";
 import {adminAuthorized,cronAuthorized,constantTimeEqual,mutationGuard} from "../_shared/security.js";
 async function auth(request,env){if(adminAuthorized(request,env)||cronAuthorized(request,env))return true;const supplied=request.headers.get("x-factory-cron")||"";if(!supplied)return false;try{const row=await supabaseDB(env).prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();return constantTimeEqual(supplied,row?.token||"")}catch(_){return false}}
 function parseDraft(raw){
@@ -65,14 +65,6 @@ async function completeDraftContent(env,job,draft,language){
  throw new Error("FACTORY_DRAFT_TOO_SHORT: "+words+" words; single generation did not meet the 500-word quality minimum.");
 }
 async function generateCloudflareTextDraft(env,job,language,prompt){
- const cap=Math.max(1,Math.min(40,Number(env.FACTORY_CF_DAILY_PRODUCT_CAP||30)));
- const slot=await claimDailyAiSlot(env,"CLOUDFLARE_WORKERS_AI_TEXT",cap);
- if(!slot){
-  const next=new Date();next.setUTCHours(24,0,0,0);
-  const message="Factory safety cap reached: "+cap+" Cloudflare text-fallback products for this UTC day.";
-  await supabaseDB(env).prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES('CLOUDFLARE_WORKERS_AI_TEXT','exhausted',?,?,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='exhausted',last_error=excluded.last_error,blocked_until=excluded.blocked_until,updated_at=CURRENT_TIMESTAMP").bind(message,next.toISOString()).run();
-  throw new Error("CLOUDFLARE_AI_QUOTA_EXHAUSTED: "+message+" Retry after 00:00 UTC.");
- }
  if(!env.AI||typeof env.AI.run!=="function")throw new Error("CLOUDFLARE_AI_UNAVAILABLE: Workers AI binding is not configured.");
  const model=env.FACTORY_TEXT_MODEL||"@cf/google/gemma-4-26b-a4b-it";
  const system="Return ONLY one syntactically valid JSON object. No Markdown fences, no preamble, no commentary. Use exactly four string properties: title, description, keywords, content. Escape all quotation marks and newlines correctly inside JSON strings. The content value must be 500-650 words of useful Markdown.";
@@ -114,15 +106,6 @@ async function generateDraft(env,job){
   console.log("FACTORY_GEMINI_UNAVAILABLE_USING_CLOUDFLARE_AI",JSON.stringify({configuredKeys:keys.length,states:keys.map(k=>({key:k,state:map.get(k)?.state||"unknown"}))}));
   return await generateCloudflareTextDraft(env,job,languageName(job.language), "Create a complete, genuinely useful original digital "+job.product_type+" in "+languageName(job.language)+". Write naturally for readers in "+job.market+". Topic: "+job.opportunity_title+". Occasion: "+job.occasion+". Create 550-700 words with an introduction, 5-6 practical sections, concrete steps and examples, an actionable checklist or worksheet, and a concise conclusion. Return exactly one valid JSON object with string fields title, description (70-100 words), keywords (8-12 comma-separated phrases), and content (550-700 words in Markdown, entirely in "+languageName(job.language)+".");
  }
- const geminiDailyCap=Math.max(1,Math.min(18,Number(env.FACTORY_GEMINI_DAILY_CAP||15)));
- const geminiSlot=keys.length?await claimDailyAiSlot(env,"GEMINI_POOL",geminiDailyCap):null;
- if(keys.length&&!geminiSlot){
-  const next=new Date();next.setUTCHours(24,0,0,0);
-  const message="Factory safety cap reached: "+geminiDailyCap+" Gemini requests for this UTC day.";
-  for(const key of keys)await supabaseDB(env).prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'exhausted',?,?,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='exhausted',last_error=excluded.last_error,blocked_until=excluded.blocked_until,updated_at=CURRENT_TIMESTAMP").bind(key,message,next.toISOString()).run();
-  throw new Error("GEMINI_POOL_EXHAUSTED: "+message+" Retry after 00:00 UTC.");
- }
-
  const model=env.GEMINI_MODEL||"gemini-3.8-flash",language=languageName(job.language);
  const prompt="Create a complete, genuinely useful original digital "+job.product_type+" in "+language+". Write naturally for readers in "+job.market+". Topic: "+job.opportunity_title+". Occasion: "+job.occasion+". Create 550-700 words of useful, original content, with a short introduction, 5-6 practical sections, concrete steps and examples, one actionable checklist or worksheet, and a concise conclusion. Avoid filler, repeated ideas, invented statistics, guarantees, and copyrighted brands. Return exactly one valid JSON object with string fields title, description (70-100 words), keywords (8-12 comma-separated search phrases, in "+language+"), and content (550-700 words in Markdown, entirely in "+language+").";
  const failures=[],temporaryFailures=[];
@@ -198,11 +181,11 @@ async function generateDraft(env,job){
  }
 }
 async function generateCloudflareCover(env,id,title,market,productType,description,occasion){
-  if(String(env.FACTORY_AI_COVERS||"").toLowerCase()!=="true")return {imageKey:"covers/"+id+".svg",contentType:"image/svg+xml",generated:false,fallback:true,reason:"AI cover generation disabled by default to preserve the Workers AI daily allocation"};
+  if(String(env.FACTORY_AI_COVERS||"true").toLowerCase()==="false")return {imageKey:"covers/"+id+".svg",contentType:"image/svg+xml",generated:false,fallback:true,reason:"AI cover generation explicitly disabled by configuration"};
  await ensureFactoryTables(env);
  const provider="CLOUDFLARE_WORKERS_AI_IMAGE";
  const state=await supabaseDB(env).prepare("SELECT state,blocked_until FROM factory_provider_state WHERE provider_key=?").bind(provider).first();
- if(state?.state==="exhausted"&&state.blocked_until&&Date.parse(state.blocked_until)>Date.now())return {imageKey:"covers/"+id+".svg",contentType:"image/svg+xml",generated:false,fallback:true,reason:"Cloudflare Workers AI daily allocation is exhausted"};
+ if(state?.state==="exhausted"&&(!state.blocked_until||Date.parse(state.blocked_until)>Date.now()))return {imageKey:"covers/"+id+".svg",contentType:"image/svg+xml",generated:false,fallback:true,reason:"Cloudflare Workers AI daily allocation is exhausted"};
  const prompt="Create a premium, visually striking portrait 3:4 editorial cover artwork for a digital "+productType+". Product title: "+String(title).slice(0,120)+". Description and subject: "+String(description).slice(0,500)+". Audience/market: "+market+". Occasion: "+occasion+". Show one clear relevant visual concept, sophisticated composition, refined typography-free artwork, clean focal point, professional commercial publishing quality. Absolutely no words, letters, numbers, logos, watermarks, mockup frames, or text on the image.";
  try{
   const result=await runAiLogged(env,{jobId:id,provider:"CLOUDFLARE_WORKERS_AI_IMAGE",model:"@cf/black-forest-labs/flux-1-schnell",task:"factory_cover",inputChars:prompt.length},()=>env.AI.run("@cf/black-forest-labs/flux-1-schnell",{prompt,steps:4}));
@@ -215,7 +198,7 @@ async function generateCloudflareCover(env,id,title,market,productType,descripti
   return {imageKey:key,contentType:"image/jpeg",generated:true,fallback:false};
  }catch(error){
   const message=String(error?.message||error);
-  const dailyLimit=/3036|429|rate.?limit|quota|resource.?exhausted|free.?allocation|daily.*limit|10,000 neurons|account limited/i.test(message);
+  const dailyLimit=/4006|3036|429|rate.?limit|quota|resource.?exhausted|free.?allocation|daily.*limit|10,000 neurons|account limited/i.test(message);
   if(dailyLimit){
    const next=new Date();next.setUTCHours(24,0,0,0);
    await supabaseDB(env).prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'exhausted',?,?,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='exhausted',last_error=excluded.last_error,blocked_until=excluded.blocked_until,updated_at=CURRENT_TIMESTAMP").bind(provider,"Cloudflare Workers AI daily image allocation exhausted: "+message.slice(0,500),next.toISOString()).run();
@@ -295,15 +278,7 @@ async function processSingle(context){
    await supabaseDB(env).prepare("UPDATE factory_jobs SET status='queued',stage='queued',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE status='deferred' AND id IN (SELECT job_id FROM factory_retry_schedule WHERE next_retry_at<=CURRENT_TIMESTAMP)").run();
    await supabaseDB(env).prepare("DELETE FROM factory_retry_schedule WHERE next_retry_at<=CURRENT_TIMESTAMP").run();
   }
-  // No arbitrary daily product cap: provider quotas and per-model limits are the
-  // production budget. Keep a high emergency guard against runaway loops only.
-  const dailyGuard=Math.max(1,Math.min(10,Number(settings.daily_product_cap||10)));
-  const dailyCount=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM products WHERE status IN ('published','draft') AND created_at >= (date_trunc('day',CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')").first();
-  const producedToday=Number(dailyCount?.n||0);
-  if(producedToday>=dailyGuard){
-   await supabaseDB(env).prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run();
-   return Response.json({ok:true,paused:true,reason:"emergency_daily_guard_reached",producedToday,dailyGuard,message:"Emergency safety guard reached. Provider quotas remain the normal production limiter."});
-  }
+  // Provider quotas are the only daily AI budget; no arbitrary daily product cap.
   const body=await request.clone().json().catch(()=>({}));
   const requestedLanguage=body.language?String(body.language):null;
   const job=await supabaseDB(env).prepare("SELECT j.*,o.title opportunity_title FROM factory_jobs j JOIN factory_opportunities o ON o.id=j.opportunity_id WHERE j.status='queued' AND (? IS NULL OR upper(substr(j.language,1,2))=upper(substr(?,1,2))) ORDER BY o.opportunity_score DESC,j.created_at LIMIT 1").bind(requestedLanguage,requestedLanguage).first();
