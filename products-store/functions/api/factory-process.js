@@ -114,7 +114,7 @@ async function generateDraft(env,job){
    console.log("FACTORY_GEMINI_QUOTA_STATE_REPAIRED",JSON.stringify({provider_key:key,blocked_until:blockedUntil}));
   }
  }
- const available=keys.filter(k=>{const s=map.get(k);if(!s)return true;const until=s.blocked_until?Date.parse(s.blocked_until):0;if(Number.isFinite(until)&&until>Date.now())return false;if(s.state==="active"||s.state==="unknown")return true;if(s.state==="exhausted")return true;return false});
+ const available=keys.filter(k=>{const s=map.get(k);if(!s)return true;const until=s.blocked_until?Date.parse(s.blocked_until):0;if(s.state==="invalid")return false;if(s.state==="exhausted"&&(!Number.isFinite(until)||until>Date.now()))return false;if(s.state==="active"||s.state==="unknown"||s.state==="exhausted")return true;return false});
  if(!available.length){
   console.log("FACTORY_GEMINI_UNAVAILABLE_USING_CLOUDFLARE_AI",JSON.stringify({configuredKeys:keys.length,states:keys.map(k=>({key:k,state:map.get(k)?.state||"unknown"}))}));
   return await generateCloudflareTextDraft(env,job,languageName(job.language), "Create a complete, genuinely useful original digital "+job.product_type+" in "+languageName(job.language)+". Write naturally for readers in "+job.market+". Topic: "+job.opportunity_title+". Occasion: "+job.occasion+". Create 550-700 words with an introduction, 5-6 practical sections, concrete steps and examples, an actionable checklist or worksheet, and a concise conclusion. Return exactly one valid JSON object with string fields title, description (70-100 words), keywords (8-12 comma-separated phrases), and content (550-700 words in Markdown, entirely in "+languageName(job.language)+".");
