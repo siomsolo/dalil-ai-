@@ -19,7 +19,7 @@ export default {
     let completed = 0;
     const failures = [];
     // Run exactly one product per five-minute tick to protect the daily AI allocation.
-    for (let attempt = 0; attempt < 1 && completed < 1; attempt++) {
+    for (let attempt = 0; attempt < 8 && completed < 8; attempt++) {
       const planRes = await fetch(base + "/api/factory-run", { method: "POST", headers, body: "{}" });
       const planText = await planRes.text();
       if (!planRes.ok) throw new Error("Planner failed " + planRes.status + ": " + planText.slice(0, 300));
