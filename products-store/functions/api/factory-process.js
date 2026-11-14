@@ -292,7 +292,7 @@ async function processSingle(context){
   }
   // No arbitrary daily product cap: provider quotas and per-model limits are the
   // production budget. Keep a high emergency guard against runaway loops only.
-  const dailyGuard=Math.max(1000,Number(settings.daily_product_cap||1000));
+  const dailyGuard=Math.max(1,Math.min(10,Number(settings.daily_product_cap||10)));
   const dailyCount=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM products WHERE status IN ('published','draft') AND created_at >= (date_trunc('day',CURRENT_TIMESTAMP AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')").first();
   const producedToday=Number(dailyCount?.n||0);
   if(producedToday>=dailyGuard){

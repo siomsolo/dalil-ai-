@@ -11,7 +11,7 @@ export async function onRequestPost({request,env}){
   await supabaseDB(env).prepare("CREATE TABLE IF NOT EXISTS factory_queue_lock (id INTEGER PRIMARY KEY CHECK(id=1),lock_token TEXT,lock_until TEXT)").run();
   const settings=await supabaseDB(env).prepare("SELECT enabled FROM factory_settings WHERE id=1").first();
   if(!settings?.enabled)return Response.json({ok:true,skipped:true,reason:"factory_disabled"});
-  const due=await supabaseDB(env).prepare("SELECT job_id FROM factory_retry_schedule WHERE datetime(next_retry_at)<=CURRENT_TIMESTAMP ORDER BY next_retry_at LIMIT 10").all();
+  const due=await supabaseDB(env).prepare("SELECT job_id FROM factory_retry_schedule WHERE datetime(next_retry_at)<=CURRENT_TIMESTAMP ORDER BY next_retry_at LIMIT 1").all();
   let released=0;
   for(const item of (due.results||[])){
    const r=await supabaseDB(env).prepare("UPDATE factory_jobs SET status='queued',stage='queued',error=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=? AND status='deferred'").bind(item.job_id).run();
@@ -46,7 +46,7 @@ export async function onRequestPost({request,env}){
   let lastResult=null,lastStatus=200;
   // Ten sequential attempts per minute-level scheduler tick. Each attempt uses
   // the shared DB queue lock and stops immediately on provider cooldown/errors.
-  for(let attempt=0;attempt<10;attempt++){
+  for(let attempt=0;attempt<1;attempt++){
    const result=await fetch(url.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":schedulerSecret},body:"{}"});
    const body=await result.json().catch(()=>({}));
    lastResult=body;lastStatus=result.status;

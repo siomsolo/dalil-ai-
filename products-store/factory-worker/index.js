@@ -18,10 +18,8 @@ export default {
 
     let completed = 0;
     const failures = [];
-    // Re-plan after each attempt so a failed opportunity can be replaced.
-    // Run a bounded batch per cron tick. The queue lock in the Pages processor
-    // serializes this with the five-minute/minute scheduler.
-    for (let attempt = 0; attempt < 24 && completed < 8; attempt++) {
+    // Run exactly one product per five-minute tick to protect the daily AI allocation.
+    for (let attempt = 0; attempt < 1 && completed < 1; attempt++) {
       const planRes = await fetch(base + "/api/factory-run", { method: "POST", headers, body: "{}" });
       const planText = await planRes.text();
       if (!planRes.ok) throw new Error("Planner failed " + planRes.status + ": " + planText.slice(0, 300));
