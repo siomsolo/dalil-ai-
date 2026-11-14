@@ -38,6 +38,25 @@ function retryAtFromMessage(message,fallbackMs=6*60*60*1000){
  const ms=(Number(m[1]||0)*3600+Number(m[2]||0)*60+Number(m[3]||0))*1000;
  return new Date(Date.now()+Math.max(60000,ms||fallbackMs)).toISOString();
 }
+function quotaResetAt(provider,message){
+ const m=String(message||"");
+ if(String(provider||"").startsWith("CLOUDFLARE_WORKERS_AI")&&/4006|10,000 neurons|daily free allocation/i.test(m)){
+  const next=new Date();next.setUTCHours(24,0,0,0);return next.toISOString();
+ }
+ return retryAtFromMessage(m,6*60*60*1000);
+}
+async function normalizeQuotaProviderStates(env){
+ const {results=[]}=await supabaseDB(env).prepare("SELECT provider_key,state,last_error,blocked_until FROM factory_provider_state").all();
+ for(const row of results){
+  if(!row.last_error||!quotaError(0,row.last_error))continue;
+  const current=row.blocked_until&&Date.parse(row.blocked_until)>Date.now()?row.blocked_until:null;
+  const blockedUntil=current||quotaResetAt(row.provider_key,row.last_error);
+  if(row.state!=="exhausted"||row.blocked_until!==blockedUntil){
+   await supabaseDB(env).prepare("UPDATE factory_provider_state SET state='exhausted',blocked_until=?,updated_at=CURRENT_TIMESTAMP WHERE provider_key=?").bind(blockedUntil,row.provider_key).run();
+   console.log("FACTORY_PROVIDER_QUOTA_STATE_REPAIRED",JSON.stringify({provider_key:row.provider_key,blocked_until:blockedUntil}));
+  }
+ }
+}
 
 async function completeDraftContent(env,job,draft,language){
  const words=String(draft?.content||"").trim().split(/\s+/).filter(Boolean).length;
@@ -248,16 +267,21 @@ async function processSingle(context){
  try{
   const settings=await supabaseDB(env).prepare("SELECT * FROM factory_settings WHERE id=1").first();
   if(!settings?.enabled)return Response.json({error:"Factory is disabled."},{status:409});
-  // If every configured Gemini key is unavailable and the Workers AI text
-  // allocation is also cooling down, do not claim jobs or burn repeated calls.
+  // Repair stale provider rows before any job is claimed. A quota error must
+  // never coexist with an "active" state or a missing cooldown.
+  await normalizeQuotaProviderStates(env);
   const configuredGeminiKeys=["GEMINI_EN_API_KEY","GEMINI_FR_API_KEY","GEMINI_ES_API_KEY"].filter(key=>!!env[key]);
   const providerRows=await supabaseDB(env).prepare("SELECT provider_key,state,blocked_until FROM factory_provider_state WHERE provider_key IN ('GEMINI_EN_API_KEY','GEMINI_FR_API_KEY','GEMINI_ES_API_KEY')").all();
-  const unavailableGemini=new Set((providerRows.results||[]).filter(row=>row.state==="invalid"||(row.state==="exhausted"&&row.blocked_until&&Date.parse(row.blocked_until)>Date.now())).map(row=>row.provider_key));
+  const providerMap=new Map((providerRows.results||[]).map(row=>[row.provider_key,row]));
+  const unavailableGemini=new Set((providerRows.results||[]).filter(row=>row.state==="invalid"||(row.state==="exhausted"&&(!row.blocked_until||Date.parse(row.blocked_until)>Date.now()))).map(row=>row.provider_key));
   const allGeminiUnavailable=configuredGeminiKeys.length===0||configuredGeminiKeys.every(key=>unavailableGemini.has(key));
   const cloudflareTextState=await supabaseDB(env).prepare("SELECT state,blocked_until FROM factory_provider_state WHERE provider_key='CLOUDFLARE_WORKERS_AI_TEXT'").first();
-  if(allGeminiUnavailable&&cloudflareTextState?.state==="exhausted"&&cloudflareTextState.blocked_until&&Date.parse(cloudflareTextState.blocked_until)>Date.now()){
+  const cloudflareTextUnavailable=cloudflareTextState?.state==="invalid"||(cloudflareTextState?.state==="exhausted"&&(!cloudflareTextState.blocked_until||Date.parse(cloudflareTextState.blocked_until)>Date.now()));
+  if(allGeminiUnavailable&&cloudflareTextUnavailable){
+   const resetDates=[...configuredGeminiKeys.map(key=>providerMap.get(key)?.blocked_until),cloudflareTextState?.blocked_until].filter(Boolean).map(Date.parse).filter(value=>Number.isFinite(value)&&value>Date.now());
+   const resumeAt=resetDates.length?new Date(Math.max(...resetDates)).toISOString():null;
    await supabaseDB(env).prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run();
-   return Response.json({ok:true,empty:true,paused:true,reason:"all_ai_providers_cooling_down",resumeAt:cloudflareTextState.blocked_until,message:"All configured text providers are at quota or unavailable. No job was claimed; the queue is preserved until the next provider reset."});
+   return Response.json({ok:true,empty:true,paused:true,reason:"all_ai_providers_cooling_down",resumeAt,message:"All configured text providers are at quota or unavailable. No job was claimed; queued jobs are preserved until a provider reset."});
   }
   // Requeue only jobs whose scheduled retry time has arrived.
   const due=await supabaseDB(env).prepare("SELECT job_id FROM factory_retry_schedule WHERE next_retry_at<=CURRENT_TIMESTAMP").all();
