@@ -44,9 +44,9 @@ export async function onRequestPost({request,env}){
   const url=new URL(request.url);url.pathname="/api/factory-process";url.search="";
   const completed=[];
   let lastResult=null,lastStatus=200;
-  // Ten sequential attempts per minute-level scheduler tick. Each attempt uses
+  // Eight sequential attempts per scheduler tick. Each attempt uses
   // the shared DB queue lock and stops immediately on provider cooldown/errors.
-  for(let attempt=0;attempt<1;attempt++){
+  for(let attempt=0;attempt<8;attempt++){
    const result=await fetch(url.toString(),{method:"POST",headers:{"content-type":"application/json","x-factory-cron":schedulerSecret},body:"{}"});
    const body=await result.json().catch(()=>({}));
    lastResult=body;lastStatus=result.status;
