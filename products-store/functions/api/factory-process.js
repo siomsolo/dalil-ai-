@@ -100,6 +100,14 @@ async function generateDraft(env,job){
  // Consume the three free-tier projects in a strict, predictable order.
  // The selected language is carried in the prompt, so any configured key can serve any language.
  const keys=["GEMINI_EN_API_KEY","GEMINI_FR_API_KEY","GEMINI_ES_API_KEY"].filter(k=>!!env[k]);
+ const geminiDailyCap=Math.max(1,Math.min(18,Number(env.FACTORY_GEMINI_DAILY_CAP||15)));
+ const geminiSlot=keys.length?await claimDailyAiSlot(env,"GEMINI_POOL",geminiDailyCap):null;
+ if(keys.length&&!geminiSlot){
+  const next=new Date();next.setUTCHours(24,0,0,0);
+  const message="Factory safety cap reached: "+geminiDailyCap+" Gemini requests for this UTC day.";
+  for(const key of keys)await supabaseDB(env).prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'exhausted',?,?,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='exhausted',last_error=excluded.last_error,blocked_until=excluded.blocked_until,updated_at=CURRENT_TIMESTAMP").bind(key,message,next.toISOString()).run();
+  throw new Error("GEMINI_POOL_EXHAUSTED: "+message+" Retry after 00:00 UTC.");
+ }
  if(!keys.length){console.log("FACTORY_NO_GEMINI_KEYS_USING_CLOUDFLARE_AI");return await generateCloudflareTextDraft(env,job,languageName(job.language),"Create a complete, genuinely useful original digital "+job.product_type+" in "+languageName(job.language)+". Write naturally for readers in "+job.market+". Topic: "+job.opportunity_title+". Occasion: "+job.occasion+". Create 550-700 words with an introduction, 5-6 practical sections, concrete steps and examples, an actionable checklist or worksheet, and a concise conclusion. Return exactly one valid JSON object with string fields title, description (70-100 words), keywords (8-12 comma-separated phrases), and content (550-700 words in Markdown, entirely in "+languageName(job.language)+".");}
  const {results:states=[]}=await supabaseDB(env).prepare("SELECT provider_key,state,last_error,blocked_until FROM factory_provider_state").all();
  const map=new Map(states.map(x=>[x.provider_key,x]));
