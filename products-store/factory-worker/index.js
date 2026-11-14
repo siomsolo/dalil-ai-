@@ -18,7 +18,7 @@ export default {
 
     let completed = 0;
     const failures = [];
-    // Run exactly one product per five-minute tick to protect the daily AI allocation.
+    // Run sequential batches; stop on provider quota cooldown and resume on the next scheduled tick.
     for (let attempt = 0; attempt < 8 && completed < 8; attempt++) {
       const planRes = await fetch(base + "/api/factory-run", { method: "POST", headers, body: "{}" });
       const planText = await planRes.text();
