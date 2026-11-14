@@ -80,12 +80,8 @@ async function generateCloudflareTextDraft(env,job,language,prompt){
  const extract=(r)=>r?.response??r?.choices?.[0]?.message?.content??r?.output_text??r?.result?.response??r?.result?.output_text??r;
  let response=await run(prompt);
  let raw=extract(response),draft;
- try{draft=parseDraft(raw)}catch(firstError){
-  console.log("FACTORY_CLOUDFLARE_JSON_REPAIR",JSON.stringify({model,error:String(firstError?.message||firstError),sample:String(typeof raw==="string"?raw:JSON.stringify(raw)).slice(0,900)}));
-  const sample=String(typeof raw==="string"?raw:JSON.stringify(raw)).slice(0,14000);
-  response=await run("Convert the following attempted product draft into exactly one valid JSON object with string fields title, description, keywords, content. Preserve the useful content, repair all JSON syntax, remove any text outside the JSON object, and ensure content is at least 500 words in "+language+". Return JSON only.\n\nDRAFT TO REPAIR:\n"+sample,"json_repair");
-  raw=extract(response);
-  try{draft=parseDraft(raw)}catch(secondError){throw new Error("CLOUDFLARE_AI_INVALID_JSON_AFTER_REPAIR: "+String(secondError?.message||secondError)+"; response="+String(typeof raw==="string"?raw:JSON.stringify(raw)).slice(0,500))}
+ try{draft=parseDraft(raw)}catch(parseError){
+  throw new Error("CLOUDFLARE_AI_INVALID_JSON: "+String(parseError?.message||parseError)+"; one-call policy prevents a second repair inference.");
  }
  draft=await completeDraftContent(env,job,draft,language);
  const words=String(draft.content||"").trim().split(/\s+/).filter(Boolean).length;
