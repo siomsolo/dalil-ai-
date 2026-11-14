@@ -1,4 +1,5 @@
 import {supabaseDB} from "../_shared/supabase-db.js";
+import {runAiLogged,logAiUsage,claimDailyAiSlot} from "../_shared/ai-usage.js";
 import {adminAuthorized,cronAuthorized,constantTimeEqual,mutationGuard} from "../_shared/security.js";
 async function auth(request,env){if(adminAuthorized(request,env)||cronAuthorized(request,env))return true;const supplied=request.headers.get("x-factory-cron")||"";if(!supplied)return false;try{const row=await supabaseDB(env).prepare("SELECT token FROM factory_scheduler_auth WHERE id=1").first();return constantTimeEqual(supplied,row?.token||"")}catch(_){return false}}
 function parseDraft(raw){
@@ -60,31 +61,29 @@ async function normalizeQuotaProviderStates(env){
 
 async function completeDraftContent(env,job,draft,language){
  const words=String(draft?.content||"").trim().split(/\s+/).filter(Boolean).length;
- if(words>=520)return draft;
- if(!env.AI||typeof env.AI.run!=="function")throw new Error("FACTORY_DRAFT_TOO_SHORT: "+words+" words and no expansion provider is available.");
- const model=env.FACTORY_TEXT_MODEL||"@cf/google/gemma-4-26b-a4b-it";
- const prompt="Expand and improve this digital product into a complete, useful 600-700 word product in "+language+". Keep the same topic, intended audience, title, description and keywords. Do not add filler or repeat points. Include concrete steps, examples, a practical checklist or worksheet, and a conclusion. Return exactly one JSON object with string fields title, description, keywords, content. The content must be at least 550 words.\n\nCURRENT DRAFT:\n"+JSON.stringify({title:draft.title,description:draft.description,keywords:draft.keywords,content:draft.content}).slice(0,18000);
- let result;
- try{result=await env.AI.run(model,{messages:[{role:"system",content:"You are a professional digital publishing editor. Return valid JSON only, with complete content and no markdown fences."},{role:"user",content:prompt}],temperature:0.15,max_tokens:7000,chat_template_kwargs:{enable_thinking:false},response_format:{type:"json_object"}})}catch(error){throw new Error("FACTORY_DRAFT_EXPANSION_FAILED: "+String(error?.message||error))}
- const raw=result?.response??result?.choices?.[0]?.message?.content??result?.output_text??result?.result?.response??result;
- let expanded;
- try{expanded=parseDraft(raw)}catch(error){throw new Error("FACTORY_DRAFT_EXPANSION_INVALID_JSON: "+String(error?.message||error))}
- const expandedWords=String(expanded.content||"").trim().split(/\s+/).filter(Boolean).length;
- if(!expanded.title||!expanded.description||expandedWords<500)throw new Error("FACTORY_DRAFT_EXPANSION_INCOMPLETE: "+expandedWords+" words after expansion.");
- return {...draft,...expanded,_gemini_key_used:draft._gemini_key_used||"CLOUDFLARE_WORKERS_AI_EXPANSION:"+model};
+ if(words>=500)return draft;
+ throw new Error("FACTORY_DRAFT_TOO_SHORT: "+words+" words; single generation did not meet the 500-word quality minimum.");
 }
 async function generateCloudflareTextDraft(env,job,language,prompt){
+ const cap=Math.max(1,Math.min(40,Number(env.FACTORY_CF_DAILY_PRODUCT_CAP||30)));
+ const slot=await claimDailyAiSlot(env,"CLOUDFLARE_WORKERS_AI_TEXT",cap);
+ if(!slot){
+  const next=new Date();next.setUTCHours(24,0,0,0);
+  const message="Factory safety cap reached: "+cap+" Cloudflare text-fallback products for this UTC day.";
+  await supabaseDB(env).prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES('CLOUDFLARE_WORKERS_AI_TEXT','exhausted',?,?,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='exhausted',last_error=excluded.last_error,blocked_until=excluded.blocked_until,updated_at=CURRENT_TIMESTAMP").bind(message,next.toISOString()).run();
+  throw new Error("CLOUDFLARE_AI_QUOTA_EXHAUSTED: "+message+" Retry after 00:00 UTC.");
+ }
  if(!env.AI||typeof env.AI.run!=="function")throw new Error("CLOUDFLARE_AI_UNAVAILABLE: Workers AI binding is not configured.");
  const model=env.FACTORY_TEXT_MODEL||"@cf/google/gemma-4-26b-a4b-it";
  const system="Return ONLY one syntactically valid JSON object. No Markdown fences, no preamble, no commentary. Use exactly four string properties: title, description, keywords, content. Escape all quotation marks and newlines correctly inside JSON strings. The content value must be 500-650 words of useful Markdown.";
- const run=async(userPrompt)=>await env.AI.run(model,{messages:[{role:"system",content:system},{role:"user",content:userPrompt}],temperature:0.2,max_tokens:7000,chat_template_kwargs:{enable_thinking:false},response_format:{type:"json_object"}});
+ const run=async(userPrompt,task="draft")=>await runAiLogged(env,{jobId:job.id,provider:"CLOUDFLARE_WORKERS_AI_TEXT",model,task,inputChars:userPrompt.length},()=>env.AI.run(model,{messages:[{role:"system",content:system},{role:"user",content:userPrompt}],temperature:0.2,max_tokens:2500,chat_template_kwargs:{enable_thinking:false},response_format:{type:"json_object"}}));
  const extract=(r)=>r?.response??r?.choices?.[0]?.message?.content??r?.output_text??r?.result?.response??r?.result?.output_text??r;
  let response=await run(prompt);
  let raw=extract(response),draft;
  try{draft=parseDraft(raw)}catch(firstError){
   console.log("FACTORY_CLOUDFLARE_JSON_REPAIR",JSON.stringify({model,error:String(firstError?.message||firstError),sample:String(typeof raw==="string"?raw:JSON.stringify(raw)).slice(0,900)}));
   const sample=String(typeof raw==="string"?raw:JSON.stringify(raw)).slice(0,14000);
-  response=await run("Convert the following attempted product draft into exactly one valid JSON object with string fields title, description, keywords, content. Preserve the useful content, repair all JSON syntax, remove any text outside the JSON object, and ensure content is at least 500 words in "+language+". Return JSON only.\n\nDRAFT TO REPAIR:\n"+sample);
+  response=await run("Convert the following attempted product draft into exactly one valid JSON object with string fields title, description, keywords, content. Preserve the useful content, repair all JSON syntax, remove any text outside the JSON object, and ensure content is at least 500 words in "+language+". Return JSON only.\n\nDRAFT TO REPAIR:\n"+sample,"json_repair");
   raw=extract(response);
   try{draft=parseDraft(raw)}catch(secondError){throw new Error("CLOUDFLARE_AI_INVALID_JSON_AFTER_REPAIR: "+String(secondError?.message||secondError)+"; response="+String(typeof raw==="string"?raw:JSON.stringify(raw)).slice(0,500))}
  }
@@ -122,7 +121,7 @@ async function generateDraft(env,job){
  const model=env.GEMINI_MODEL||"gemini-3.8-flash",language=languageName(job.language);
  const prompt="Create a complete, genuinely useful original digital "+job.product_type+" in "+language+". Write naturally for readers in "+job.market+". Topic: "+job.opportunity_title+". Occasion: "+job.occasion+". Create 550-700 words of useful, original content, with a short introduction, 5-6 practical sections, concrete steps and examples, one actionable checklist or worksheet, and a concise conclusion. Avoid filler, repeated ideas, invented statistics, guarantees, and copyrighted brands. Return exactly one valid JSON object with string fields title, description (70-100 words), keywords (8-12 comma-separated search phrases, in "+language+"), and content (550-700 words in Markdown, entirely in "+language+").";
  const failures=[],temporaryFailures=[];
- const requestBody=JSON.stringify({systemInstruction:{parts:[{text:"You are a professional digital publishing editor. Produce original, accurate, commercially useful content in "+language+". Follow the requested JSON format exactly."}]},contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{temperature:0.35,maxOutputTokens:6000,responseMimeType:"application/json"}});
+ const requestBody=JSON.stringify({systemInstruction:{parts:[{text:"You are a professional digital publishing editor. Produce original, accurate, commercially useful content in "+language+". Follow the requested JSON format exactly."}]},contents:[{role:"user",parts:[{text:prompt}]}],generationConfig:{temperature:0.35,maxOutputTokens:3500,responseMimeType:"application/json"}});
  for(let keyIndex=0;keyIndex<available.length;keyIndex++){
   const secretName=available[keyIndex];
   console.log("FACTORY_GEMINI_KEY_ATTEMPT",JSON.stringify({provider_key:secretName,key_position:keyIndex+1,key_count:available.length,language:job.language}));
@@ -130,6 +129,7 @@ async function generateDraft(env,job){
   for(let attempt=0;attempt<2;attempt++){
    try{response=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(model)+":generateContent",{method:"POST",headers:{"content-type":"application/json","x-goog-api-key":env[secretName]},body:requestBody,signal:AbortSignal.timeout(45000)});}catch(fetchError){temporaryFailures.push(secretName+": request timeout/network error: "+String(fetchError?.message||fetchError));response=null;break;}
    raw=await response.text();payload={};try{payload=JSON.parse(raw)}catch(_){}
+   await logAiUsage(env,{jobId:job.id,provider:secretName,model,task:"factory_draft",success:response.ok,httpStatus:response.status,inputChars:requestBody.length,outputChars:raw.length,usage:payload?.usageMetadata||{},metadata:{attempt:attempt+1}});
    if(response.ok)break;
    message=payload?.error?.message||raw.slice(0,500)||("Gemini HTTP "+response.status);
    if(response.status!==503||attempt===1)break;
@@ -193,13 +193,14 @@ async function generateDraft(env,job){
  }
 }
 async function generateCloudflareCover(env,id,title,market,productType,description,occasion){
+  if(String(env.FACTORY_AI_COVERS||"").toLowerCase()!=="true")return {imageKey:"covers/"+id+".svg",contentType:"image/svg+xml",generated:false,fallback:true,reason:"AI cover generation disabled by default to preserve the Workers AI daily allocation"};
  await ensureFactoryTables(env);
  const provider="CLOUDFLARE_WORKERS_AI_IMAGE";
  const state=await supabaseDB(env).prepare("SELECT state,blocked_until FROM factory_provider_state WHERE provider_key=?").bind(provider).first();
  if(state?.state==="exhausted"&&state.blocked_until&&Date.parse(state.blocked_until)>Date.now())return {imageKey:"covers/"+id+".svg",contentType:"image/svg+xml",generated:false,fallback:true,reason:"Cloudflare Workers AI daily allocation is exhausted"};
  const prompt="Create a premium, visually striking portrait 3:4 editorial cover artwork for a digital "+productType+". Product title: "+String(title).slice(0,120)+". Description and subject: "+String(description).slice(0,500)+". Audience/market: "+market+". Occasion: "+occasion+". Show one clear relevant visual concept, sophisticated composition, refined typography-free artwork, clean focal point, professional commercial publishing quality. Absolutely no words, letters, numbers, logos, watermarks, mockup frames, or text on the image.";
  try{
-  const result=await env.AI.run("@cf/black-forest-labs/flux-1-schnell",{prompt,steps:4});
+  const result=await runAiLogged(env,{jobId:id,provider:"CLOUDFLARE_WORKERS_AI_IMAGE",model:"@cf/black-forest-labs/flux-1-schnell",task:"factory_cover",inputChars:prompt.length},()=>env.AI.run("@cf/black-forest-labs/flux-1-schnell",{prompt,steps:4}));
   if(!result?.image)throw new Error("Cloudflare image model returned no image.");
   const binary=atob(result.image),bytes=Uint8Array.from(binary,ch=>ch.charCodeAt(0));
   if(bytes.length<5000)throw new Error("Cloudflare image model returned an incomplete image.");
@@ -356,7 +357,7 @@ async function processSingle(context){
   await supabaseDB(env).prepare("DELETE FROM factory_retry_schedule WHERE job_id=?").bind(job.id).run();
   await supabaseDB(env).prepare("UPDATE factory_queue_lock SET lock_token=NULL,lock_until=NULL WHERE id=1 AND lock_token=?").bind(lockToken).run();
   const nextCount=await supabaseDB(env).prepare("SELECT COUNT(*) AS n FROM factory_jobs WHERE status='queued'").first();
-  if(Number(nextCount?.n||0)>0){const internalSecret=env.FACTORY_CRON_SECRET||env.ADMIN_PASSWORD;if(internalSecret){const nextUrl=new URL(request.url);context.waitUntil(fetch(nextUrl.toString(),{method:"POST",headers:{"content-type":"application/json",[env.FACTORY_CRON_SECRET?"x-factory-cron":"x-admin-token"]:internalSecret},body:"{}"}).then(r=>{if(!r.ok)console.log("FACTORY_QUEUE_CHAIN_STATUS",r.status)}).catch(e=>console.log("FACTORY_QUEUE_CHAIN_ERROR",String(e))))}}
+  // The five-minute scheduler owns pacing; never recursively launch more products from this request.
   return Response.json({ok:true,status,slug,title:data.title,wordCount,jobId:job.id,geminiKeyUsed:data._gemini_key_used||null,coverGenerated:cover.generated,coverFallback:cover.fallback,coverProvider:"Cloudflare Workers AI",coverReason:cover.reason||null});
  }catch(e){
   if(activeJobId){
