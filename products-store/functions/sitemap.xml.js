@@ -16,10 +16,10 @@ function productUrl(slug) {
 
 export async function onRequest({env}) {
   const sourceResults = await Promise.allSettled([
-    supabaseDB(env).prepare(
+    Promise.resolve().then(() => supabaseDB(env).prepare(
       "SELECT slug,updated_at,created_at FROM products WHERE status='published' ORDER BY updated_at DESC LIMIT 50000"
-    ).all(),
-    listPublishedSupabaseProducts(env)
+    ).all()),
+    Promise.resolve().then(() => listPublishedSupabaseProducts(env))
   ]);
 
   const d1Result = sourceResults[0];
@@ -69,8 +69,7 @@ export async function onRequest({env}) {
   return new Response(xml, {
     headers: {
       "content-type": "application/xml;charset=UTF-8",
-      "cache-control": "public, max-age=300, s-maxage=300",
-      "x-robots-tag": "noindex"
+      "cache-control": "public, max-age=300, s-maxage=300"
     }
   });
 }
