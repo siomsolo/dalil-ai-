@@ -157,14 +157,21 @@ async function generateDraft(env,job){
    continue;
   }
   let draft;
-  try{draft=parseDraft(generated)}catch(draftError){
-   temporaryFailures.push(secretName+": invalid or incomplete JSON draft: "+String(draftError?.message||draftError).slice(0,300));
-   console.log("FACTORY_GEMINI_KEY_FAILOVER",JSON.stringify({provider_key:secretName,next_provider:keys[keys.indexOf(secretName)+1]||null,reason:"invalid_draft"}));
+  try{
+   draft=parseDraft(generated);
+   const keywordText=Array.isArray(draft?.keywords)?draft.keywords.join(","):String(draft?.keywords||"");
+   if(!draft?.title||!draft?.description||keywordText.split(",").filter(x=>x.trim()).length<5)throw new Error("FACTORY_DRAFT_INCOMPLETE: title, description, and at least five keywords are required.");
+   await completeDraftContent(env,job,draft,language);
+  }catch(draftError){
+   const validationError=String(draftError?.message||draftError).slice(0,500);
+   temporaryFailures.push(secretName+": generated draft rejected: "+validationError);
+   await logAiUsage(env,{jobId:job.id,provider:secretName,model,task:"factory_draft_validation",success:false,httpStatus:response.status,inputChars:requestBody.length,outputChars:raw.length,error:validationError,metadata:{validation:"draft_rejected",reason:validationError.includes("TOO_SHORT")?"under_500_words":"invalid_or_incomplete_draft"}});
+   console.log("FACTORY_GEMINI_KEY_FAILOVER",JSON.stringify({provider_key:secretName,next_provider:available[keyIndex+1]||"CLOUDFLARE_WORKERS_AI",reason:validationError.includes("TOO_SHORT")?"draft_below_quality_minimum":"invalid_or_incomplete_draft"}));
    continue;
   }
   await supabaseDB(env).prepare("INSERT INTO factory_provider_state(provider_key,state,last_error,blocked_until,updated_at) VALUES(?,'active',NULL,NULL,CURRENT_TIMESTAMP) ON CONFLICT(provider_key) DO UPDATE SET state='active',last_error=NULL,blocked_until=NULL,updated_at=CURRENT_TIMESTAMP").bind(secretName).run();
-  console.log("FACTORY_GEMINI_KEY_SUCCESS",JSON.stringify({provider_key:secretName}));
-  draft._gemini_key_used=secretName;return await completeDraftContent(env,job,draft,language);
+  console.log("FACTORY_GEMINI_KEY_SUCCESS",JSON.stringify({provider_key:secretName,words:String(draft.content||"").trim().split(/\\s+/).filter(Boolean).length}));
+  draft._gemini_key_used=secretName;return draft;
  }
  console.log("FACTORY_GEMINI_POOL_FALLBACK",JSON.stringify({failedKeys:failures.length,temporaryFailures:temporaryFailures.length}));
  try{
