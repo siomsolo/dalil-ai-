@@ -58,7 +58,7 @@ export async function onRequestPost(context){
     const language=String(form.get("language")||"English").trim().slice(0,40);
     const market=String(form.get("market")||"Global").trim().slice(0,80);
     if(!title||!description||title.length>180||description.length>12000)return Response.json({error:"Title and description are required and must be within the allowed length."},{status:400});
-    const normalizeTitle=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]/g,"");
+    const normalizeTitle=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^\p{L}\p{N}]/gu,"");
     const normalizedTitle=normalizeTitle(title);
     // Query only the title metadata for this language/market instead of
     // loading the complete catalog (including descriptions and file metadata)
