@@ -1,4 +1,4 @@
-import {listAllPublishedProducts} from "../_shared/published-products.js";
+import {supabaseDB} from "../_shared/supabase-db.js";
 import {insertSupabaseProduct} from "../_shared/supabase-products.js";
 import {adminAuthorized,mutationGuard} from "../_shared/security.js";
 
@@ -59,10 +59,13 @@ export async function onRequestPost(context){
     if(!title||!description||title.length>180||description.length>12000)return Response.json({error:"Title and description are required and must be within the allowed length."},{status:400});
     const normalizeTitle=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]/g,"");
     const normalizedTitle=normalizeTitle(title);
-    const existingProducts=await listAllPublishedProducts(env);
-    const duplicate=existingProducts.find(product=>
-      String(product.language||"").trim().toLowerCase()===language.toLowerCase() &&
-      String(product.market||"").trim().toLowerCase()===market.toLowerCase() &&
+    // Query only the title metadata for this language/market instead of
+    // loading the complete catalog (including descriptions and file metadata)
+    // on every manual upload.
+    const existingResult=await supabaseDB(env).prepare(
+      "SELECT slug,title,language,market FROM products WHERE status='published' AND lower(language)=lower(?) AND lower(market)=lower(?)"
+    ).bind(language,market).all();
+    const duplicate=(existingResult.results||[]).find(product=>
       normalizeTitle(product.title)===normalizedTitle
     );
     if(duplicate)return Response.json({
