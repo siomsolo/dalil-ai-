@@ -1,4 +1,5 @@
 import {listAllPublishedProducts} from "../_shared/published-products.js";
+import {supabaseDB} from "../_shared/supabase-db.js";
 import {insertSupabaseProduct} from "../_shared/supabase-products.js";
 import {adminAuthorized,mutationGuard} from "../_shared/security.js";
 
@@ -54,9 +55,39 @@ export async function onRequestPost(context){
       if(!["image/jpeg","image/png","image/webp"].includes(image.type))return Response.json({error:"Cover must be a JPEG, PNG or WebP image."},{status:415});
     }
     const title=String(form.get("title")||"").trim(),description=String(form.get("description")||"").trim();
+    const language=String(form.get("language")||"English").trim().slice(0,40);
+    const market=String(form.get("market")||"Global").trim().slice(0,80);
     if(!title||!description||title.length>180||description.length>12000)return Response.json({error:"Title and description are required and must be within the allowed length."},{status:400});
+    const normalizeTitle=value=>String(value||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^\p{L}\p{N}]/gu,"");
+    const normalizedTitle=normalizeTitle(title);
+    // Query only the title metadata for this language/market instead of
+    // loading the complete catalog (including descriptions and file metadata)
+    // on every manual upload.
+    const existingResult=await supabaseDB(env).prepare(
+      "SELECT slug,title,language,market FROM products WHERE status='published' AND lower(language)=lower(?) AND lower(market)=lower(?)"
+    ).bind(language,market).all();
+    // Non-Latin titles can normalize to an empty ASCII key; never treat
+    // two such titles as equal merely because both keys are empty.
+    const duplicate=normalizedTitle
+      ? (existingResult.results||[]).find(product=>
+          normalizeTitle(product.title)===normalizedTitle
+        )
+      : null;
+    if(duplicate)return Response.json({
+      error:"A published product with the same title, language and market already exists.",
+      duplicate:true,
+      existingProduct:{slug:duplicate.slug,title:duplicate.title}
+    },{status:409,headers:{"Cache-Control":"no-store"}});
     let slug=String(form.get("slug")||title).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,90);
     if(!slug)slug=crypto.randomUUID();
+    const slugCollision=await supabaseDB(env).prepare(
+      "SELECT slug FROM products WHERE slug=? LIMIT 1"
+    ).bind(slug).first();
+    if(slugCollision)return Response.json({
+      error:"A product with this URL slug already exists. Choose a different slug.",
+      duplicateSlug:true,
+      existingSlug:slugCollision.slug
+    },{status:409,headers:{"Cache-Control":"no-store"}});
     const id=crypto.randomUUID(),safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"-").slice(-100);
     fileKey="products/"+id+"/"+safeName;
     await env.FILES.put(fileKey,file.stream(),{httpMetadata:{contentType:file.type||"application/octet-stream"}});
@@ -67,7 +98,7 @@ export async function onRequestPost(context){
       await env.FILES.put(imageKey,image.stream(),{httpMetadata:{contentType:image.type}});
       imageUrl="/media/"+imageKey;
     }
-    const data={id,slug,title,description,category:String(form.get("category")||"Digital resource").slice(0,100),language:String(form.get("language")||"English").slice(0,40),market:String(form.get("market")||"Global").slice(0,80),occasion:String(form.get("occasion")||"Evergreen").slice(0,80),keywords:String(form.get("keywords")||"").slice(0,2000),price:5,file_key:fileKey,file_name:safeName,file_type:file.type||"application/octet-stream",image_key:imageKey,image_url:imageUrl,status:"published"};
+    const data={id,slug,title,description,category:String(form.get("category")||"Digital resource").slice(0,100),language,market,occasion:String(form.get("occasion")||"Evergreen").slice(0,80),keywords:String(form.get("keywords")||"").slice(0,2000),price:5,file_key:fileKey,file_name:safeName,file_type:file.type||"application/octet-stream",image_key:imageKey,image_url:imageUrl,status:"published"};
     await insertSupabaseProduct(env,data);
     saved=true;
     try{await caches.default.delete(new Request(new URL("/api/products",request.url).toString(),{method:"GET"}));}catch(error){}
