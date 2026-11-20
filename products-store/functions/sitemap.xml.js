@@ -12,9 +12,10 @@ export async function onRequest({env}){
       origin+"/all-products.html",
       ...products.map(product=>origin+"/product/"+encodeURIComponent(String(product.slug)))
     ];
+    const productByUrl=new Map(products.map(item=>[origin+"/product/"+encodeURIComponent(String(item.slug)),item]));
     const seen=new Set();
     const entries=urls.filter(url=>{if(seen.has(url))return false;seen.add(url);return true;}).slice(0,MAX_URLS).map(url=>{
-      const product=products.find(item=>url.endsWith("/product/"+encodeURIComponent(String(item.slug))));
+      const product=productByUrl.get(url);
       const date=product?.updated_at||product?.created_at;
       const parsed=date?new Date(date):null;
       const lastmod=parsed&&Number.isFinite(parsed.getTime())?"<lastmod>"+parsed.toISOString().slice(0,10)+"</lastmod>":"";
