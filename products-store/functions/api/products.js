@@ -1,3 +1,4 @@
+import {listAllPublishedProducts} from "../_shared/published-products.js";
 import {supabaseDB} from "../_shared/supabase-db.js";
 import {insertSupabaseProduct} from "../_shared/supabase-products.js";
 import {adminAuthorized,mutationGuard} from "../_shared/security.js";
