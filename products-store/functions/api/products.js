@@ -70,7 +70,7 @@ export async function onRequestPost(context){
       duplicate:true,
       existingProduct:{slug:duplicate.slug,title:duplicate.title}
     },{status:409,headers:{"Cache-Control":"no-store"}});
-    let slug=String(form.get("slug")||title).toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,90);
+    let slug=String(form.get("slug")||title).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,90);
     if(!slug)slug=crypto.randomUUID();
     const id=crypto.randomUUID(),safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"-").slice(-100);
     fileKey="products/"+id+"/"+safeName;
