@@ -28,7 +28,7 @@ export async function onRequest({params,env}){
  if(!p)return new Response("Product not found",{status:404});
  const productTitle=String(p.title||"Digital product").trim();
  const productDescription=String(p.description||"A digital resource from DigitalNest.").trim();
- const seoTitle=(productTitle.length>45?productTitle.slice(0,42).replace(/\\s+\\S*$/,"")+"…":productTitle)+" | DigitalNest";
+ const seoTitle=(productTitle.length>45?productTitle.slice(0,42).replace(/\s+\S*$/,"")+"…":productTitle)+" | DigitalNest";
  const productUrl="https://digital-products-store-4yt.pages.dev/product/"+encodeURIComponent(String(p.slug));
  p.price=5; // Annual store-wide offer; keep display, structured data and checkout aligned.
  const relatedSources=await Promise.allSettled([
