@@ -66,9 +66,13 @@ export async function onRequestPost(context){
     const existingResult=await supabaseDB(env).prepare(
       "SELECT slug,title,language,market FROM products WHERE status='published' AND lower(language)=lower(?) AND lower(market)=lower(?)"
     ).bind(language,market).all();
-    const duplicate=(existingResult.results||[]).find(product=>
-      normalizeTitle(product.title)===normalizedTitle
-    );
+    // Non-Latin titles can normalize to an empty ASCII key; never treat
+    // two such titles as equal merely because both keys are empty.
+    const duplicate=normalizedTitle
+      ? (existingResult.results||[]).find(product=>
+          normalizeTitle(product.title)===normalizedTitle
+        )
+      : null;
     if(duplicate)return Response.json({
       error:"A published product with the same title, language and market already exists.",
       duplicate:true,
@@ -76,6 +80,14 @@ export async function onRequestPost(context){
     },{status:409,headers:{"Cache-Control":"no-store"}});
     let slug=String(form.get("slug")||title).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,90);
     if(!slug)slug=crypto.randomUUID();
+    const slugCollision=await supabaseDB(env).prepare(
+      "SELECT slug FROM products WHERE slug=? LIMIT 1"
+    ).bind(slug).first();
+    if(slugCollision)return Response.json({
+      error:"A product with this URL slug already exists. Choose a different slug.",
+      duplicateSlug:true,
+      existingSlug:slugCollision.slug
+    },{status:409,headers:{"Cache-Control":"no-store"}});
     const id=crypto.randomUUID(),safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"-").slice(-100);
     fileKey="products/"+id+"/"+safeName;
     await env.FILES.put(fileKey,file.stream(),{httpMetadata:{contentType:file.type||"application/octet-stream"}});
