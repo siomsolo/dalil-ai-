@@ -1,3 +1,5 @@
 User-agent: *
 Allow: /
-Sitemap: https://digital-products-store-4yt.pages.dev/sitemap-v2.xml
+Disallow: /admin.html
+Disallow: /factory.html
+Sitemap: https://digital-products-store-4yt.pages.dev/sitemap.xml
