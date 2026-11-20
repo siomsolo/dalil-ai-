@@ -1,30 +1,37 @@
-import {supabaseDB} from "../_shared/supabase-db.js";
-import {listPublishedSupabaseProducts,insertSupabaseProduct} from "../_shared/supabase-products.js";
+import {listAllPublishedProducts} from "../_shared/published-products.js";
+import {insertSupabaseProduct} from "../_shared/supabase-products.js";
 import {adminAuthorized,mutationGuard} from "../_shared/security.js";
+
 export async function onRequestGet(context){
   const {env,request,waitUntil}=context;
   const cacheKey=new Request(new URL("/api/products",request.url).toString(),{method:"GET"});
-  try{
+  try {
     const cached=await caches.default.match(cacheKey);
     if(cached)return cached;
-  }catch(e){
-    // Cache is an optimization; continue to D1 if unavailable.
+  } catch(error) {
+    console.log("PRODUCTS_CACHE_READ_FAILED",String(error?.message||error).slice(0,180));
   }
-  try{
-    const [{results=[]},supabaseProducts]=await Promise.all([supabaseDB(env).prepare("SELECT id,slug,title,description,category,language,market,occasion,keywords,price,image_url,status,created_at FROM products WHERE status='published' ORDER BY created_at DESC").all(),listPublishedSupabaseProducts(env)]);
-    const seen=new Set();
-    const combined=[...supabaseProducts,...results].filter(product=>{const key=String(product.id||product.slug);if(seen.has(key)||seen.has("slug:"+product.slug))return false;seen.add(key);seen.add("slug:"+product.slug);return true;});
-    const response=Response.json({products:combined.map(product=>({...product,price:5}))},{headers:{"Cache-Control":"public, max-age=60, s-maxage=300, stale-while-revalidate=600"}});
-    try{
+
+  try {
+    const products=await listAllPublishedProducts(env);
+    const response=Response.json(
+      {products:products.map(product=>({...product,price:5}))},
+      {headers:{"Cache-Control":"public, max-age=60, s-maxage=300, stale-while-revalidate=600"}}
+    );
+    try {
       const write=caches.default.put(cacheKey,response.clone());
       if(typeof waitUntil==="function")waitUntil(write);
       else await write;
-    }catch(e){
-      // A cache write failure must not make the catalog unavailable.
+    } catch(error) {
+      console.log("PRODUCTS_CACHE_WRITE_FAILED",String(error?.message||error).slice(0,180));
     }
     return response;
-  }catch(e){
-    return Response.json({products:null,error:"The product catalog is temporarily unavailable. Please try again shortly."},{status:503,headers:{"Cache-Control":"no-store"}});
+  } catch(error) {
+    console.log("PRODUCTS_ENDPOINT_FAILED",String(error?.message||error).slice(0,300));
+    return Response.json(
+      {products:null,error:"The product catalog is temporarily unavailable. Please try again shortly."},
+      {status:503,headers:{"Cache-Control":"no-store","Retry-After":"60"}}
+    );
   }
 }
 
@@ -63,13 +70,13 @@ export async function onRequestPost(context){
     const data={id,slug,title,description,category:String(form.get("category")||"Digital resource").slice(0,100),language:String(form.get("language")||"English").slice(0,40),market:String(form.get("market")||"Global").slice(0,80),occasion:String(form.get("occasion")||"Evergreen").slice(0,80),keywords:String(form.get("keywords")||"").slice(0,2000),price:5,file_key:fileKey,file_name:safeName,file_type:file.type||"application/octet-stream",image_key:imageKey,image_url:imageUrl,status:"published"};
     await insertSupabaseProduct(env,data);
     saved=true;
-    try{await caches.default.delete(new Request(new URL("/api/products",request.url).toString(),{method:"GET"}));}catch(e){}
+    try{await caches.default.delete(new Request(new URL("/api/products",request.url).toString(),{method:"GET"}));}catch(error){}
+    try{await caches.default.delete(new Request(new URL("/sitemap.xml",request.url).toString(),{method:"GET"}));}catch(error){}
     try{const {notifyIndexNow}=await import("../_shared/indexnow.js");notifyIndexNow(context,data.slug);}catch(notifyError){console.log("INDEXNOW_NOTIFY_SKIPPED",String(notifyError?.message||notifyError));}
     return Response.json({ok:true,product:{slug,title,price:data.price}},{status:201});
-  }catch(e){
-    if(!saved){if(fileKey)await env.FILES.delete(fileKey).catch(()=>{});
-    if(imageKey)await env.FILES.delete(imageKey).catch(()=>{});}
-    console.log("PRODUCT_UPLOAD_FAILED",JSON.stringify({message:String(e?.message||e)}));
+  }catch(error){
+    if(!saved){if(fileKey)await env.FILES.delete(fileKey).catch(()=>{});if(imageKey)await env.FILES.delete(imageKey).catch(()=>{});}
+    console.log("PRODUCT_UPLOAD_FAILED",JSON.stringify({message:String(error?.message||error)}));
     return Response.json({error:"Could not save product. Please verify the product details and try again."},{status:500});
   }
 }
