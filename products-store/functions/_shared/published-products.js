@@ -1,7 +1,7 @@
 import {supabaseDB} from "./supabase-db.js";
 import {listPublishedSupabaseProducts} from "./supabase-products.js";
 
-const D1_QUERY = "SELECT id,slug,title,description,category,language,market,occasion,keywords,price,image_url,status,created_at,updated_at FROM products WHERE status='published' ORDER BY COALESCE(updated_at,created_at) DESC LIMIT 50000";
+const RPC_QUERY = "SELECT id,slug,title,description,category,language,market,occasion,keywords,price,image_url,status,created_at,updated_at FROM products WHERE status='published' ORDER BY COALESCE(updated_at,created_at) DESC LIMIT 50000";
 
 /**
  * Read published products through the Supabase SQL RPC and Supabase REST table API.
@@ -11,28 +11,28 @@ const D1_QUERY = "SELECT id,slug,title,description,category,language,market,occa
  */
 export async function listAllPublishedProducts(env, {limit = 50000} = {}) {
   const [rpcResult, restResult] = await Promise.allSettled([
-    Promise.resolve().then(() => supabaseDB(env).prepare(D1_QUERY).all()),
+    Promise.resolve().then(() => supabaseDB(env).prepare(RPC_QUERY).all()),
     Promise.resolve().then(() => listPublishedSupabaseProducts(env))
   ]);
 
   if (rpcResult.status === "rejected") {
-    console.log("PUBLISHED_PRODUCTS_RPC_FAILED", String(d1Result.reason?.message || d1Result.reason).slice(0, 300));
+    console.log("PUBLISHED_PRODUCTS_RPC_FAILED", String(rpcResult.reason?.message || rpcResult.reason).slice(0, 300));
   }
   if (restResult.status === "rejected") {
-    console.log("PUBLISHED_PRODUCTS_REST_FAILED", String(supabaseResult.reason?.message || supabaseResult.reason).slice(0, 300));
+    console.log("PUBLISHED_PRODUCTS_REST_FAILED", String(restResult.reason?.message || restResult.reason).slice(0, 300));
   }
 
-  const rpcProducts = d1Result.status === "fulfilled" ? (d1Result.value?.results || []) : [];
-  const restProducts = supabaseResult.status === "fulfilled" ? (supabaseResult.value || []) : [];
-  const hasUsableRpc = d1Result.status === "fulfilled";
-  const hasUsableRest = supabaseResult.status === "fulfilled" && Boolean(env.SUPABASE_SERVICE_ROLE_KEY);
+  const rpcProducts = rpcResult.status === "fulfilled" ? (rpcResult.value?.results || []) : [];
+  const restProducts = restResult.status === "fulfilled" ? (restResult.value || []) : [];
+  const hasUsableRpc = rpcResult.status === "fulfilled";
+  const hasUsableRest = restResult.status === "fulfilled" && Boolean(env.SUPABASE_SERVICE_ROLE_KEY);
 
-  if (!hasUsableD1 && !hasUsableSupabase) {
+  if (!hasUsableRpc && !hasUsableRest) {
     throw new Error("All published-product data sources are unavailable.");
   }
 
   const seen = new Set();
-  const combined = [...supabaseProducts, ...d1Products].filter(product => {
+  const combined = [...restProducts, ...rpcProducts].filter(product => {
     const slug = String(product?.slug || "").trim();
     if (!slug || seen.has(slug)) return false;
     seen.add(slug);
