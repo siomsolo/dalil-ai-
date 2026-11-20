@@ -54,8 +54,23 @@ export async function onRequestPost(context){
       if(!["image/jpeg","image/png","image/webp"].includes(image.type))return Response.json({error:"Cover must be a JPEG, PNG or WebP image."},{status:415});
     }
     const title=String(form.get("title")||"").trim(),description=String(form.get("description")||"").trim();
+    const language=String(form.get("language")||"English").trim().slice(0,40);
+    const market=String(form.get("market")||"Global").trim().slice(0,80);
     if(!title||!description||title.length>180||description.length>12000)return Response.json({error:"Title and description are required and must be within the allowed length."},{status:400});
-    let slug=String(form.get("slug")||title).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,90);
+    const normalizeTitle=value=>String(value||"").normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]/g,"");
+    const normalizedTitle=normalizeTitle(title);
+    const existingProducts=await listAllPublishedProducts(env);
+    const duplicate=existingProducts.find(product=>
+      String(product.language||"").trim().toLowerCase()===language.toLowerCase() &&
+      String(product.market||"").trim().toLowerCase()===market.toLowerCase() &&
+      normalizeTitle(product.title)===normalizedTitle
+    );
+    if(duplicate)return Response.json({
+      error:"A published product with the same title, language and market already exists.",
+      duplicate:true,
+      existingProduct:{slug:duplicate.slug,title:duplicate.title}
+    },{status:409,headers:{"Cache-Control":"no-store"}});
+    let slug=String(form.get("slug")||title).toLowerCase().normalize("NFD").replace(/[\\u0300-\\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,90);
     if(!slug)slug=crypto.randomUUID();
     const id=crypto.randomUUID(),safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,"-").slice(-100);
     fileKey="products/"+id+"/"+safeName;
@@ -67,7 +82,7 @@ export async function onRequestPost(context){
       await env.FILES.put(imageKey,image.stream(),{httpMetadata:{contentType:image.type}});
       imageUrl="/media/"+imageKey;
     }
-    const data={id,slug,title,description,category:String(form.get("category")||"Digital resource").slice(0,100),language:String(form.get("language")||"English").slice(0,40),market:String(form.get("market")||"Global").slice(0,80),occasion:String(form.get("occasion")||"Evergreen").slice(0,80),keywords:String(form.get("keywords")||"").slice(0,2000),price:5,file_key:fileKey,file_name:safeName,file_type:file.type||"application/octet-stream",image_key:imageKey,image_url:imageUrl,status:"published"};
+    const data={id,slug,title,description,category:String(form.get("category")||"Digital resource").slice(0,100),language,market,occasion:String(form.get("occasion")||"Evergreen").slice(0,80),keywords:String(form.get("keywords")||"").slice(0,2000),price:5,file_key:fileKey,file_name:safeName,file_type:file.type||"application/octet-stream",image_key:imageKey,image_url:imageUrl,status:"published"};
     await insertSupabaseProduct(env,data);
     saved=true;
     try{await caches.default.delete(new Request(new URL("/api/products",request.url).toString(),{method:"GET"}));}catch(error){}
