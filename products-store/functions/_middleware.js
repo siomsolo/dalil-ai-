@@ -15,6 +15,32 @@ function harden(response) {
 const META_PIXEL_ID = "1182976757735669";
 const META_PIXEL_SCRIPT = `<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${META_PIXEL_ID}');fbq('track','PageView');</script>`;
 const META_PIXEL_NOSCRIPT = `<noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=${META_PIXEL_ID}&ev=PageView&noscript=1" alt=""></noscript>`;
+const META_PRODUCT_EVENT_SCRIPT = `<script>
+(function(){
+  function sendProductView(){
+    if(typeof window.fbq!=="function") return;
+    var nodes=document.querySelectorAll('script[type="application/ld+json"]');
+    for(var i=0;i<nodes.length;i++){
+      try{
+        var data=JSON.parse(nodes[i].textContent||"null");
+        var graph=Array.isArray(data&&data["@graph"])?data["@graph"]:[data];
+        var product=graph.find(function(item){return item&&item["@type"]==="Product";});
+        if(!product) continue;
+        var offer=Array.isArray(product.offers)?product.offers[0]:(product.offers||{});
+        var id=product.sku||product.productID||product["@id"]||product.url;
+        var payload={content_type:"product",content_ids:[String(id)]};
+        if(product.name) payload.content_name=product.name;
+        if(offer.price!==undefined&&offer.price!==null) payload.value=Number(offer.price);
+        if(offer.priceCurrency) payload.currency=offer.priceCurrency;
+        window.fbq("track","ViewContent",payload);
+        return;
+      }catch(e){}
+    }
+  }
+  if(document.readyState==="loading") document.addEventListener("DOMContentLoaded",sendProductView,{once:true});
+  else sendProductView();
+})();
+</script>`;
 
 async function withMetaPixel(response) {
   const contentType = response.headers.get("content-type") || "";
@@ -30,6 +56,7 @@ async function withMetaPixel(response) {
     ? html.slice(0, headEnd) + META_PIXEL_SCRIPT + html.slice(headEnd)
     : META_PIXEL_SCRIPT + html;
   updated = updated.replace(/<body[^>]*>/i, match => match + META_PIXEL_NOSCRIPT);
+  if (updated.includes('application/ld+json')) updated = updated.replace(/<\\/body>/i, META_PRODUCT_EVENT_SCRIPT + "</body>");
   return new Response(updated, { status: response.status, statusText: response.statusText, headers });
 }
 
