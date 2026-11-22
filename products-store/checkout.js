@@ -94,6 +94,17 @@
         },
         onClick: function () {
           say("PayPal button clicked. Waiting for the secure PayPal window…");
+          if (typeof window.fbq === "function") {
+            const title = document.querySelector(".product-detail-title")?.textContent?.trim() || slug;
+            window.fbq("track", "InitiateCheckout", {
+              content_type: "product",
+              content_ids: [String(slug)],
+              content_name: title,
+              value: 5.00,
+              currency: "USD",
+              num_items: 1
+            });
+          }
         },
         createOrder: async function () {
           say("Preparing your secure PayPal order…");
@@ -121,6 +132,17 @@
           }
 
           say("Payment confirmed. Your download is ready.");
+          if (typeof window.fbq === "function") {
+            const title = document.querySelector(".product-detail-title")?.textContent?.trim() || slug;
+            window.fbq("track", "Purchase", {
+              content_type: "product",
+              content_ids: [String(slug)],
+              content_name: title,
+              value: 5.00,
+              currency: "USD",
+              num_items: 1
+            }, { eventID: String(data.orderID || data.orderId || Date.now()) });
+          }
           const link = document.createElement("a");
           link.href = result.downloadUrl;
           link.className = "button";
