@@ -45,19 +45,24 @@ const META_PRODUCT_EVENT_SCRIPT = `<script>
 async function withMetaPixel(response) {
   const contentType = response.headers.get("content-type") || "";
   if (!contentType.includes("text/html")) return response;
-  const html = await response.text();
+  let html = await response.text();
   const headers = new Headers(response.headers);
   headers.delete("content-length");
-  if (html.includes(META_PIXEL_ID)) {
-    return new Response(html, { status: response.status, statusText: response.statusText, headers });
+
+  if (!html.includes(META_PIXEL_ID)) {
+    const headEnd = html.toLowerCase().indexOf("</head>");
+    html = headEnd >= 0
+      ? html.slice(0, headEnd) + META_PIXEL_SCRIPT + html.slice(headEnd)
+      : META_PIXEL_SCRIPT + html;
+    html = html.replace(/<body[^>]*>/i, match => match + META_PIXEL_NOSCRIPT);
   }
-  const headEnd = html.toLowerCase().indexOf("</head>");
-  let updated = headEnd >= 0
-    ? html.slice(0, headEnd) + META_PIXEL_SCRIPT + html.slice(headEnd)
-    : META_PIXEL_SCRIPT + html;
-  updated = updated.replace(/<body[^>]*>/i, match => match + META_PIXEL_NOSCRIPT);
-  if (updated.includes('application/ld+json')) updated = updated.replace(/<\\/body>/i, META_PRODUCT_EVENT_SCRIPT + "</body>");
-  return new Response(updated, { status: response.status, statusText: response.statusText, headers });
+
+  if (html.includes('application/ld+json') && !html.includes('META_PRODUCT_VIEW_EVENT')) {
+    const bodyEnd = html.toLowerCase().lastIndexOf("</body>");
+    if (bodyEnd >= 0) html = html.slice(0, bodyEnd) + META_PRODUCT_EVENT_SCRIPT.replace("<script>", '<script id="META_PRODUCT_VIEW_EVENT">') + html.slice(bodyEnd);
+  }
+
+  return new Response(html, { status: response.status, statusText: response.statusText, headers });
 }
 
 async function finish(response) {
