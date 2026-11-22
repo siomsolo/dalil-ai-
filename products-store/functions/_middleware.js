@@ -11,6 +11,32 @@ function harden(response) {
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
+
+const META_PIXEL_ID = "1182976757735669";
+const META_PIXEL_SCRIPT = `<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${META_PIXEL_ID}');fbq('track','PageView');</script>`;
+const META_PIXEL_NOSCRIPT = `<noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=${META_PIXEL_ID}&ev=PageView&noscript=1" alt=""></noscript>`;
+
+async function withMetaPixel(response) {
+  const contentType = response.headers.get("content-type") || "";
+  if (!contentType.includes("text/html")) return response;
+  const html = await response.text();
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  if (html.includes(META_PIXEL_ID)) {
+    return new Response(html, { status: response.status, statusText: response.statusText, headers });
+  }
+  const headEnd = html.toLowerCase().indexOf("</head>");
+  let updated = headEnd >= 0
+    ? html.slice(0, headEnd) + META_PIXEL_SCRIPT + html.slice(headEnd)
+    : META_PIXEL_SCRIPT + html;
+  updated = updated.replace(/<body[^>]*>/i, match => match + META_PIXEL_NOSCRIPT);
+  return new Response(updated, { status: response.status, statusText: response.statusText, headers });
+}
+
+async function finish(response) {
+  return harden(await withMetaPixel(response));
+}
+
 const esc = value => String(value ?? "").replace(/[&<>"']/g, char => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
 }[char]));
@@ -43,10 +69,10 @@ export async function onRequest(context) {
   const response = await context.next();
   const url = new URL(context.request.url);
 
-  if (url.pathname !== "/" || !response.ok) return harden(response);
+  if (url.pathname !== "/" || !response.ok) return finish(response);
 
   const contentType = response.headers.get("content-type") || "";
-  if (!contentType.includes("text/html")) return harden(response);
+  if (!contentType.includes("text/html")) return finish(response);
 
   const fallback = response.clone();
 
@@ -66,7 +92,7 @@ export async function onRequest(context) {
     if (supabaseResult.status === "rejected") {
       console.log("HOMEPAGE_SUPABASE_PRODUCTS_FAILED", String(supabaseResult.reason?.message || supabaseResult.reason).slice(0, 250));
     }
-    if (d1Result.status === "rejected" && supabaseResult.status === "rejected") return harden(fallback);
+    if (d1Result.status === "rejected" && supabaseResult.status === "rejected") return finish(fallback);
 
     const d1Products = d1Result.status === "fulfilled" ? (d1Result.value.results || []) : [];
     const supabaseProducts = supabaseResult.status === "fulfilled" ? (supabaseResult.value || []) : [];
@@ -78,13 +104,13 @@ export async function onRequest(context) {
       return true;
     }).sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || ""))).slice(0, 500);
 
-    if (!products.length) return harden(fallback);
+    if (!products.length) return finish(fallback);
 
     const html = await response.text();
     const cards = products.map(renderProduct).join("\n");
     const markerPattern = /<!-- PRODUCTS_SSR_START -->[^]*?<!-- PRODUCTS_SSR_END -->/;
 
-    if (!markerPattern.test(html)) return harden(fallback);
+    if (!markerPattern.test(html)) return finish(fallback);
 
     const updated = html.replace(
       markerPattern,
@@ -94,13 +120,13 @@ export async function onRequest(context) {
     const headers = new Headers(response.headers);
     headers.delete("content-length");
     headers.set("cache-control", "public, max-age=60");
-    return harden(new Response(updated, {
+    return finish(new Response(updated, {
       status: response.status,
       statusText: response.statusText,
       headers
     }));
   } catch (error) {
     console.log("HOMEPAGE_PRODUCT_SSR_FAILED", String(error?.message || error).slice(0, 300));
-    return harden(fallback);
+    return finish(fallback);
   }
 }
